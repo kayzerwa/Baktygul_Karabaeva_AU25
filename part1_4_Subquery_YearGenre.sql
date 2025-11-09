@@ -16,9 +16,9 @@
 
 SELECT 
     release_year,
-    COALESCE(MAX(CASE WHEN category_name = 'Drama' THEN movie_count END), 0) AS number_of_drama_movies,
-    COALESCE(MAX(CASE WHEN category_name = 'Travel' THEN movie_count END), 0) AS number_of_travel_movies,
-    COALESCE(MAX(CASE WHEN category_name = 'Documentary' THEN movie_count END), 0) AS number_of_documentary_movies
+    COALESCE(MAX(CASE WHEN LOWER(category_name) = LOWER('Drama') THEN movie_count END), 0) AS number_of_drama_movies,
+    COALESCE(MAX(CASE WHEN LOWER(category_name) = LOWER('Travel') THEN movie_count END), 0) AS number_of_travel_movies,
+    COALESCE(MAX(CASE WHEN LOWER(category_name) = LOWER('Documentary') THEN movie_count END), 0) AS number_of_documentary_movies
 FROM (
     SELECT 
         f.release_year,
@@ -27,7 +27,7 @@ FROM (
     FROM public.film f
     LEFT JOIN public.film_category fc ON f.film_id = fc.film_id
     LEFT JOIN public.category c ON fc.category_id = c.category_id
-    WHERE c.name IN ('Drama', 'Travel', 'Documentary')
+    WHERE LOWER(c.name) IN (LOWER('Drama'), LOWER('Travel'), LOWER('Documentary'))
     GROUP BY f.release_year, c.name
 ) AS sub
 GROUP BY release_year

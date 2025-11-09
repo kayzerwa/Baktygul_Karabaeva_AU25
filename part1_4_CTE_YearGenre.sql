@@ -23,14 +23,14 @@ WITH genre_per_year AS (
     FROM public.film f
     LEFT JOIN public.film_category fc ON f.film_id = fc.film_id
     LEFT JOIN public.category c ON fc.category_id = c.category_id
-    WHERE c.name IN ('Drama', 'Travel', 'Documentary')
+    WHERE LOWER(c.name) IN (LOWER('Drama'), LOWER('Travel'), LOWER('Documentary'))
     GROUP BY f.release_year, c.name
 )
 SELECT 
     g.release_year,
-    COALESCE(MAX(CASE WHEN g.category_name = 'Drama' THEN g.movie_count END), 0) AS number_of_drama_movies,
-    COALESCE(MAX(CASE WHEN g.category_name = 'Travel' THEN g.movie_count END), 0) AS number_of_travel_movies,
-    COALESCE(MAX(CASE WHEN g.category_name = 'Documentary' THEN g.movie_count END), 0) AS number_of_documentary_movies
+    COALESCE(MAX(CASE WHEN LOWER(g.category_name) = LOWER('Drama') THEN g.movie_count END), 0) AS number_of_drama_movies,
+    COALESCE(MAX(CASE WHEN LOWER(g.category_name) = LOWER('Travel') THEN g.movie_count END), 0) AS number_of_travel_movies,
+    COALESCE(MAX(CASE WHEN LOWER(g.category_name) = LOWER('Documentary') THEN g.movie_count END), 0) AS number_of_documentary_movies
 FROM genre_per_year g
 GROUP BY g.release_year
 ORDER BY g.release_year DESC;

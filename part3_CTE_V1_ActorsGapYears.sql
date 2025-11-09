@@ -9,20 +9,23 @@ the gap between their latest release year and the current year 2025.
 This shows actors who have been inactive recently. */
 -- release_year comes from the film table
 
-WITH actor_latest AS (
+WITH last_film_per_actor AS (
     SELECT 
         a.actor_id,
         a.first_name,
         a.last_name,
-        MAX(f.release_year) AS last_movie_year
+        MAX(f.release_year) AS latest_release_year
     FROM public.actor a
-    LEFT JOIN public.film_actor fa ON a.actor_id = fa.actor_id
-    LEFT JOIN public.film f ON f.film_id = fa.film_id
+    INNER JOIN public.film_actor fa ON a.actor_id = fa.actor_id
+    INNER JOIN public.film f ON fa.film_id = f.film_id
     GROUP BY a.actor_id, a.first_name, a.last_name
 )
 SELECT 
+    actor_id,
     first_name,
     last_name,
-    EXTRACT(YEAR FROM CURRENT_DATE) - last_movie_year AS inactivity_years
-FROM actor_latest
-ORDER BY inactivity_years DESC;
+    latest_release_year,
+    COALESCE(EXTRACT(YEAR FROM CURRENT_DATE) - latest_release_year, 0) AS gap_years
+FROM last_film_per_actor
+ORDER BY gap_years DESC, last_name, first_name
+LIMIT 10;

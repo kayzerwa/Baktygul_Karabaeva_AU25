@@ -15,13 +15,13 @@
 
 SELECT 
     f.release_year,
-    COALESCE(SUM(CASE WHEN c.name = 'Drama' THEN 1 ELSE 0 END), 0) AS number_of_drama_movies,
-    COALESCE(SUM(CASE WHEN c.name = 'Travel' THEN 1 ELSE 0 END), 0) AS number_of_travel_movies,
-    COALESCE(SUM(CASE WHEN c.name = 'Documentary' THEN 1 ELSE 0 END), 0) AS number_of_documentary_movies
+    COALESCE(SUM(CASE WHEN LOWER(c.name) = LOWER('Drama') THEN 1 ELSE 0 END), 0) AS number_of_drama_movies,
+    COALESCE(SUM(CASE WHEN LOWER(c.name) = LOWER('Travel') THEN 1 ELSE 0 END), 0) AS number_of_travel_movies,
+    COALESCE(SUM(CASE WHEN LOWER(c.name) = LOWER('Documentary') THEN 1 ELSE 0 END), 0) AS number_of_documentary_movies
 FROM public.film f
 LEFT JOIN public.film_category fc ON f.film_id = fc.film_id
 LEFT JOIN public.category c ON fc.category_id = c.category_id
-WHERE c.name IN ('Drama', 'Travel', 'Documentary')
+WHERE LOWER(c.name) IN (LOWER('Drama'), LOWER('Travel'), LOWER('Documentary'))
 GROUP BY f.release_year
 ORDER BY f.release_year DESC;
 

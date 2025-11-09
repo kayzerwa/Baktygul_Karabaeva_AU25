@@ -13,7 +13,7 @@ WHERE f.film_id IN (
     SELECT fc.film_id
     FROM public.film_category fc
     LEFT JOIN public.category c ON fc.category_id = c.category_id
-    WHERE c.name = 'Animation'
+    WHERE LOWER(c.name) = LOWER('Animation')
         AND f.release_year BETWEEN 2017 AND 2019
         AND f.rental_rate > 1
 )
