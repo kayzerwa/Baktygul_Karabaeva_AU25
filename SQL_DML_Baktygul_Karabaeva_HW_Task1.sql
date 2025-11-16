@@ -5,125 +5,61 @@
 -- SUBTASK 1: Add top-3 favorite movies to the 'film' table
 -- ============================================================================
 
--- Movie 1: Serendipity (2001)
 INSERT INTO public.film (
     title, description, release_year, language_id, 
     rental_duration, rental_rate, length, replacement_cost, 
     rating, last_update, special_features
 )
 SELECT 
-    'Serendipity',
-    'A couple reunites years after the night they first met.',
-    2001,
-    1, -- English language_id
-    7, -- 1 week (7 days)
-    4.99,
-    90, -- runtime in minutes
-    19.99,
-    'PG',
-    CURRENT_DATE,
-    '{"Deleted Scenes","Behind the Scenes"}'
-    
-WHERE NOT EXISTS (
-    SELECT 1 FROM public.film WHERE title = 'Serendipity'
-)
-RETURNING film_id, title, rental_rate, rental_duration;
+	new_films.title, 
+	new_films.description, 
+	new_films.release_year, 
+	lang.language_id, 
+	new_films.rental_duration, 
+	new_films.rental_rate, 
+	new_films.length, 
+	new_films.replacement_cost, 
+	new_films.rating::mpaa_rating, 
+	CURRENT_DATE AS last_update, 
+	new_films.special_features::text[]
+ FROM (
+ 	VALUES 
+ 		('Serendipity', 'A couple reunites years after the night they first met.', 
+         2001, 7, 4.99, 90, 19.99, 'PG', ARRAY['Deleted Scenes', 'Behind the Scenes']::text[]),
+        ('Interstellar', 'A team travels through a wormhole in search of a new home for humanity.', 
+         2014, 14, 9.99, 169, 24.99, 'PG-13', ARRAY['Trailers', 'Commentaries']::text[]),
+        ('The Matrix', 'A hacker discovers the truth about reality.', 
+         1999, 21, 19.99, 136, 29.99, 'R', ARRAY['Trailers', 'Commentaries']::text[])
+ 
+ ) AS new_films(title, description, release_year, rental_duration, rental_rate, 
+               length, replacement_cost, rating, special_features)
+ LEFT JOIN (SELECT language_id FROM public.language WHERE LOWER(name) = 'English' LIMIT 1) AS lang ON TRUE 
+ WHERE NOT EXISTS (
+ 		SELECT 1 FROM public.film WHERE film.title = new_films.title
+ )
+ RETURNING film_id, title, rental_rate, rental_duration;
+ 
+ COMMIT;
 
--- Movie 2: Interstellar (2014)
-INSERT INTO public.film (
-    title, description, release_year, language_id, 
-    rental_duration, rental_rate, length, replacement_cost, 
-    rating, last_update, special_features
-)
-SELECT 
-    'Interstellar',
-    'A team travels through a wormhole in search of a new home for humanity.',
-    2014,
-    1, -- English language_id
-    14, -- 2 weeks (14 days)
-    9.99,
-    169, -- runtime in minutes
-    24.99,
-    'PG-13',
-    CURRENT_DATE,
-    '{"Trailers","Commentaries"}'
-    
-WHERE NOT EXISTS (
-    SELECT 1 FROM public.film WHERE title = 'Interstellar'
-)
-RETURNING film_id, title, rental_rate, rental_duration;
-
--- Movie 3: The Matrix (1999)
-INSERT INTO public.film (
-    title, description, release_year, language_id, 
-    rental_duration, rental_rate, length, replacement_cost, 
-    rating, last_update, special_features
-)
-SELECT 
-    'The Matrix',
-    'A hacker discovers the truth about reality.',
-    1999,
-    1, -- English language_id
-    21, -- 3 weeks (21 days)
-    19.99,
-    136, -- runtime in minutes
-    29.99,
-    'R',
-    CURRENT_DATE,
-    '{"Trailers","Commentaries"}'
-    
-WHERE NOT EXISTS (
-    SELECT 1 FROM public.film WHERE title = 'The Matrix'
-)
-RETURNING film_id, title, rental_rate, rental_duration;
-
-COMMIT;
 
 -- SUBTASK 2: Add real actors to 'actor' table
--- ============================================================================
-
--- Actors from Serendipity
+-- ====================================================
+ 
 INSERT INTO public.actor (first_name, last_name, last_update)
-SELECT 'John', 'Cusack', CURRENT_DATE
+SELECT v.first_name, v.last_name, CURRENT_DATE
+FROM (
+    VALUES
+        ('John', 'Cusack'),
+        ('Kate', 'Beckinsale'),
+        ('Matthew', 'McConaughey'),
+        ('Anne', 'Hathaway'),
+        ('Keanu', 'Reeves'),
+        ('Laurence', 'Fishburne')
+) AS v(first_name, last_name)
 WHERE NOT EXISTS (
-    SELECT 1 FROM public.actor WHERE first_name = 'John' AND last_name = 'Cusack'
-)
-RETURNING actor_id, first_name, last_name;
-
-INSERT INTO public.actor (first_name, last_name, last_update)
-SELECT 'Kate', 'Beckinsale', CURRENT_DATE
-WHERE NOT EXISTS (
-    SELECT 1 FROM public.actor WHERE first_name = 'Kate' AND last_name = 'Beckinsale'
-)
-RETURNING actor_id, first_name, last_name;
-
--- Actors from Interstellar
-INSERT INTO public.actor (first_name, last_name, last_update)
-SELECT 'Matthew', 'McConaughey', CURRENT_DATE
-WHERE NOT EXISTS (
-    SELECT 1 FROM public.actor WHERE first_name = 'Matthew' AND last_name = 'McConaughey'
-)
-RETURNING actor_id, first_name, last_name;
-
-INSERT INTO public.actor (first_name, last_name, last_update)
-SELECT 'Anne', 'Hathaway', CURRENT_DATE
-WHERE NOT EXISTS (
-    SELECT 1 FROM public.actor WHERE first_name = 'Anne' AND last_name = 'Hathaway'
-)
-RETURNING actor_id, first_name, last_name;
-
--- Actors from The Matrix
-INSERT INTO public.actor (first_name, last_name, last_update)
-SELECT 'Keanu', 'Reeves', CURRENT_DATE
-WHERE NOT EXISTS (
-    SELECT 1 FROM public.actor WHERE first_name = 'Keanu' AND last_name = 'Reeves'
-)
-RETURNING actor_id, first_name, last_name;
-
-INSERT INTO public.actor (first_name, last_name, last_update)
-SELECT 'Laurence', 'Fishburne', CURRENT_DATE
-WHERE NOT EXISTS (
-    SELECT 1 FROM public.actor WHERE first_name = 'Laurence' AND last_name = 'Fishburne'
+    SELECT 1 FROM public.actor a
+    WHERE LOWER(a.first_name) = LOWER(v.first_name)
+      AND LOWER(a.last_name)  = LOWER(v.last_name)
 )
 RETURNING actor_id, first_name, last_name;
 
@@ -136,75 +72,56 @@ COMMIT;
 INSERT INTO public.film_actor (actor_id, film_id, last_update)
 SELECT a.actor_id, f.film_id, CURRENT_DATE
 FROM public.actor a
-CROSS JOIN public.film f
-WHERE a.first_name = 'John' AND a.last_name = 'Cusack'
-  AND f.title = 'Serendipity'
+INNER JOIN public.film f 
+  ON LOWER(f.title) = 'serendipity'
+WHERE (LOWER(a.first_name), LOWER(a.last_name)) IN (
+        ('john', 'cusack'),
+        ('kate', 'beckinsale')
+      )
   AND NOT EXISTS (
-    SELECT 1 FROM public.film_actor fa 
-    WHERE fa.actor_id = a.actor_id AND fa.film_id = f.film_id
-)
+        SELECT 1 
+        FROM public.film_actor fa
+        WHERE fa.actor_id = a.actor_id
+          AND fa.film_id = f.film_id
+      )
 RETURNING actor_id, film_id;
 
-INSERT INTO public.film_actor (actor_id, film_id, last_update)
-SELECT a.actor_id, f.film_id, CURRENT_DATE
-FROM public.actor a
-CROSS JOIN public.film f
-WHERE a.first_name = 'Kate' AND a.last_name = 'Beckinsale'
-  AND f.title = 'Serendipity'
-  AND NOT EXISTS (
-    SELECT 1 FROM public.film_actor fa 
-    WHERE fa.actor_id = a.actor_id AND fa.film_id = f.film_id
-)
-RETURNING actor_id, film_id;
 
 -- Link Matthew McConaughey and Anne Hathaway to Interstellar
 INSERT INTO public.film_actor (actor_id, film_id, last_update)
 SELECT a.actor_id, f.film_id, CURRENT_DATE
 FROM public.actor a
-CROSS JOIN public.film f
-WHERE a.first_name = 'Matthew' AND a.last_name = 'McConaughey'
-  AND f.title = 'Interstellar'
+INNER JOIN public.film f 
+       ON LOWER(f.title) = 'interstellar'
+WHERE (LOWER(a.first_name), LOWER(a.last_name)) IN (
+        ('matthew', 'mcconaughey'),
+        ('anne', 'hathaway')
+      )
   AND NOT EXISTS (
-    SELECT 1 FROM public.film_actor fa 
-    WHERE fa.actor_id = a.actor_id AND fa.film_id = f.film_id
-)
+        SELECT 1 
+        FROM public.film_actor fa
+        WHERE fa.actor_id = a.actor_id
+          AND fa.film_id = f.film_id
+      )
 RETURNING actor_id, film_id;
 
-INSERT INTO public.film_actor (actor_id, film_id, last_update)
-SELECT a.actor_id, f.film_id, CURRENT_DATE
-FROM public.actor a
-CROSS JOIN public.film f
-WHERE a.first_name = 'Anne' AND a.last_name = 'Hathaway'
-  AND f.title = 'Interstellar'
-  AND NOT EXISTS (
-    SELECT 1 FROM public.film_actor fa 
-    WHERE fa.actor_id = a.actor_id AND fa.film_id = f.film_id
-)
-RETURNING actor_id, film_id;
 
 -- Link Keanu Reeves and Laurence Fishburne to The Matrix
 INSERT INTO public.film_actor (actor_id, film_id, last_update)
 SELECT a.actor_id, f.film_id, CURRENT_DATE
 FROM public.actor a
-CROSS JOIN public.film f
-WHERE a.first_name = 'Keanu' AND a.last_name = 'Reeves'
-  AND f.title = 'The Matrix'
+INNER JOIN public.film f 
+       ON LOWER(f.title) = 'the matrix'
+WHERE (LOWER(a.first_name), LOWER(a.last_name)) IN (
+        ('keanu', 'reeves'),
+        ('laurence', 'fishburne')
+      )
   AND NOT EXISTS (
-    SELECT 1 FROM public.film_actor fa 
-    WHERE fa.actor_id = a.actor_id AND fa.film_id = f.film_id
-)
-RETURNING actor_id, film_id;
-
-INSERT INTO public.film_actor (actor_id, film_id, last_update)
-SELECT a.actor_id, f.film_id, CURRENT_DATE
-FROM public.actor a
-CROSS JOIN public.film f
-WHERE a.first_name = 'Laurence' AND a.last_name = 'Fishburne'
-  AND f.title = 'The Matrix'
-  AND NOT EXISTS (
-    SELECT 1 FROM public.film_actor fa 
-    WHERE fa.actor_id = a.actor_id AND fa.film_id = f.film_id
-)
+        SELECT 1 
+        FROM public.film_actor fa
+        WHERE fa.actor_id = a.actor_id
+          AND fa.film_id = f.film_id
+      )
 RETURNING actor_id, film_id;
 
 COMMIT;
@@ -213,34 +130,23 @@ COMMIT;
 -- ============================================================================
 
 INSERT INTO public.inventory (film_id, store_id, last_update)
-SELECT f.film_id, 1, CURRENT_DATE
+SELECT f.film_id, s.store_id, CURRENT_DATE
 FROM public.film f
-WHERE f.title = 'Serendipity'
+INNER JOIN (
+    SELECT store_id 
+    FROM public.store 
+    ORDER BY store_id 
+    LIMIT 1
+) s ON TRUE
+WHERE LOWER(f.title) IN ('serendipity', 'interstellar', 'the matrix')
   AND NOT EXISTS (
-    SELECT 1 FROM public.inventory i 
-    WHERE i.film_id = f.film_id AND i.store_id = 1
-)
+        SELECT 1 
+        FROM public.inventory i
+        WHERE i.film_id = f.film_id
+          AND i.store_id = s.store_id
+  )
 RETURNING inventory_id, film_id, store_id;
 
-INSERT INTO public.inventory (film_id, store_id, last_update)
-SELECT f.film_id, 1, CURRENT_DATE
-FROM public.film f
-WHERE f.title = 'Interstellar'
-  AND NOT EXISTS (
-    SELECT 1 FROM public.inventory i 
-    WHERE i.film_id = f.film_id AND i.store_id = 1
-)
-RETURNING inventory_id, film_id, store_id;
-
-INSERT INTO public.inventory (film_id, store_id, last_update)
-SELECT f.film_id, 1, CURRENT_DATE
-FROM public.film f
-WHERE f.title = 'The Matrix'
-  AND NOT EXISTS (
-    SELECT 1 FROM public.inventory i 
-    WHERE i.film_id = f.film_id AND i.store_id = 1
-)
-RETURNING inventory_id, film_id, store_id;
 
 COMMIT;
 
@@ -267,22 +173,28 @@ LIMIT 1;
 
 UPDATE public.customer
 SET 
-    first_name = 'Baktygul',  
-    last_name = 'Karabaeva',    
-    email = 'baktygul.karabaeva@example.com', 
-    last_update = CURRENT_DATE
+    first_name   = 'Baktygul',
+    last_name    = 'Karabaeva',
+    email        = 'baktygul.karabaeva@example.com',
+    store_id     = (SELECT store_id FROM public.store ORDER BY store_id LIMIT 1),
+    address_id   = (SELECT address_id FROM public.address ORDER BY address_id LIMIT 1),
+    activebool   = TRUE,
+    create_date  = CURRENT_DATE,
+    last_update  = CURRENT_TIMESTAMP,
+    active       = 1
 WHERE customer_id = (
     SELECT c.customer_id
     FROM public.customer c
-    LEFT JOIN public.rental r ON c.customer_id = r.customer_id
+    LEFT JOIN public.rental r  ON c.customer_id = r.customer_id
     LEFT JOIN public.payment p ON c.customer_id = p.customer_id
     GROUP BY c.customer_id
     HAVING COUNT(DISTINCT r.rental_id) >= 43 
        AND COUNT(DISTINCT p.payment_id) >= 43
-    ORDER BY COUNT(DISTINCT r.rental_id) DESC, COUNT(DISTINCT p.payment_id) DESC
+    ORDER BY COUNT(DISTINCT r.rental_id) DESC,
+             COUNT(DISTINCT p.payment_id) DESC
     LIMIT 1
 )
-RETURNING customer_id, first_name, last_name, email;
+RETURNING customer_id, first_name, last_name, email, store_id, address_id, activebool, create_date, last_update, active;
 
 COMMIT;
 
@@ -294,29 +206,35 @@ SELECT 'Payments to delete:' as description, COUNT(*) as count
 FROM public.payment
 WHERE customer_id = (
     SELECT customer_id FROM public.customer 
-    WHERE LOWER(first_name) = LOWER('Baktygul') AND LOWER(last_name) = LOWER('Karabaeva')
-)
-UNION ALL
+    WHERE LOWER(first_name) = 'baktygul' AND LOWER(last_name) = 'karabaeva'
+    LIMIT 1
+);
+COMMIT;
+
 SELECT 'Rentals to delete:' as description, COUNT(*) as count
 FROM public.rental
 WHERE customer_id = (
     SELECT customer_id FROM public.customer 
-    WHERE LOWER(first_name) = LOWER('Baktygul') AND LOWER(last_name) = LOWER('Karabaeva')
+    WHERE LOWER(first_name) = 'baktygul' AND LOWER(last_name) = 'karabaeva'
 );
+COMMIT;
 
 -- Delete payments first (due to foreign key constraints)
 DELETE FROM public.payment
 WHERE customer_id = (
     SELECT customer_id FROM public.customer 
-    WHERE LOWER(first_name) = LOWER('Baktygul') AND LOWER(last_name) = LOWER('Karabaeva')
+    WHERE LOWER(first_name) = 'baktygul' AND LOWER(last_name) = 'karabaeva'
+    LIMIT 1
 )
 RETURNING payment_id, customer_id, amount;
+COMMIT;
 
 -- Delete rentals
 DELETE FROM public.rental
 WHERE customer_id = (
     SELECT customer_id FROM public.customer 
-    WHERE LOWER(first_name) = LOWER('Baktygul') AND LOWER(last_name) = LOWER('Karabaeva')
+    WHERE LOWER(first_name) = 'baktygul' AND LOWER(last_name) = 'karabaeva'
+    LIMIT 1
 )
 RETURNING rental_id, customer_id, rental_date;
 
@@ -325,143 +243,44 @@ COMMIT;
 -- SUBTASK 7: Rent the favorite movies and create payment records
 -- ============================================================================
 
--- Rent "Serendipity"
 INSERT INTO public.rental (rental_date, inventory_id, customer_id, return_date, staff_id, last_update)
-SELECT 
-    '2017-06-01 10:00:00'::timestamp, -- Using 2017 date for partition compatibility
-    i.inventory_id,
-    c.customer_id,
-    NULL, -- Not returned yet
-    1, -- staff_id = 1
-    CURRENT_DATE
-FROM public.inventory i
-CROSS JOIN public.customer c
-INNER JOIN public.film f ON i.film_id = f.film_id
-WHERE LOWER(f.title) = LOWER('Serendipity')
-  AND LOWER(c.first_name) = LOWER('Baktygul') AND LOWER(c.last_name) = LOWER('Karabaeva')
-  AND i.store_id = 1
-  AND NOT EXISTS (
-    SELECT 1 FROM public.rental r 
-    WHERE r.inventory_id = i.inventory_id 
-      AND r.customer_id = c.customer_id
-      AND r.rental_date = '2017-06-01 10:00:00'::timestamp
-)
-LIMIT 1
-RETURNING rental_id, rental_date, inventory_id, customer_id;
-
--- Rent "Interstellar"
-INSERT INTO public.rental (rental_date, inventory_id, customer_id, return_date, staff_id, last_update)
-SELECT 
-    '2017-06-01 11:00:00'::timestamp,
+SELECT DISTINCT ON (f.film_id)
+    timestamp '2017-01-01' + (random() * INTERVAL '1 month') + (random() * INTERVAL '24 hours'),
     i.inventory_id,
     c.customer_id,
     NULL,
-    1,
-    CURRENT_DATE
-FROM public.inventory i
+    s.staff_id,
+    CURRENT_TIMESTAMP
+FROM public.film f
+INNER JOIN public.inventory i ON i.film_id = f.film_id
+INNER JOIN public.store st ON st.store_id = i.store_id
+INNER JOIN public.staff s ON s.store_id = st.store_id
 CROSS JOIN public.customer c
-INNER JOIN public.film f ON i.film_id = f.film_id
-WHERE LOWER(f.title) = LOWER('Interstellar')
-  AND LOWER(c.first_name) = LOWER('Baktygul') AND LOWER(c.last_name) = LOWER('Karabaeva')
-  AND i.store_id = 1
-  AND NOT EXISTS (
-    SELECT 1 FROM public.rental r 
-    WHERE r.inventory_id = i.inventory_id 
-      AND r.customer_id = c.customer_id
-      AND r.rental_date = '2017-06-01 11:00:00'::timestamp
-)
-LIMIT 1
-RETURNING rental_id, rental_date, inventory_id, customer_id;
-
--- Rent "The Matrix"
-INSERT INTO public.rental (rental_date, inventory_id, customer_id, return_date, staff_id, last_update)
-SELECT 
-    '2017-06-01 12:00:00'::timestamp,
-    i.inventory_id,
-    c.customer_id,
-    NULL,
-    1,
-    CURRENT_DATE
-FROM public.inventory i
-CROSS JOIN public.customer c
-INNER JOIN public.film f ON i.film_id = f.film_id
-WHERE LOWER(f.title) = LOWER('The Matrix')
-  AND LOWER(c.first_name) = LOWER('Baktygul') AND LOWER(c.last_name) = LOWER('Karabaeva')
-  AND i.store_id = 1
-  AND NOT EXISTS (
-    SELECT 1 FROM public.rental r 
-    WHERE r.inventory_id = i.inventory_id 
-      AND r.customer_id = c.customer_id
-      AND r.rental_date = '2017-06-01 12:00:00'::timestamp
-)
-LIMIT 1
+WHERE LOWER(f.title) IN ('serendipity', 'interstellar', 'the matrix')
+  AND LOWER(c.first_name) = 'baktygul'
+  AND LOWER(c.last_name) = 'karabaeva'
 RETURNING rental_id, rental_date, inventory_id, customer_id;
 
 COMMIT;
 
--- Create payment records for the rentals
--- ============================================================================
 
--- Payment for "Serendipity" rental
+-- Payments for the rentals just created
 INSERT INTO public.payment (customer_id, staff_id, rental_id, amount, payment_date)
 SELECT 
-    c.customer_id,
-    1, -- staff_id
+    r.customer_id,
+    r.staff_id,
     r.rental_id,
-    4.99, -- rental rate for this film
-    '2017-06-01 10:00:00'::timestamp
-FROM public.customer c
-INNER JOIN public.rental r ON c.customer_id = r.customer_id
+    f.rental_rate,
+    r.rental_date
+FROM public.rental r
 INNER JOIN public.inventory i ON r.inventory_id = i.inventory_id
 INNER JOIN public.film f ON i.film_id = f.film_id
-WHERE LOWER(c.first_name) = LOWER('Baktygul') AND LOWER(c.last_name) = LOWER('Karabaeva')
-  AND LOWER(f.title) = LOWER('Serendipity')
-  AND r.rental_date = '2017-06-01 10:00:00'::timestamp
+INNER JOIN public.customer c ON r.customer_id = c.customer_id
+WHERE LOWER(c.first_name) = 'baktygul'
+  AND LOWER(c.last_name) = 'karabaeva'
   AND NOT EXISTS (
-    SELECT 1 FROM public.payment p 
-    WHERE p.rental_id = r.rental_id
-)
-RETURNING payment_id, rental_id, amount, payment_date;
-
--- Payment for "Interstellar" rental
-INSERT INTO public.payment (customer_id, staff_id, rental_id, amount, payment_date)
-SELECT 
-    c.customer_id,
-    1,
-    r.rental_id,
-    9.99,
-    '2017-06-01 11:00:00'::timestamp
-FROM public.customer c
-INNER JOIN public.rental r ON c.customer_id = r.customer_id
-INNER JOIN public.inventory i ON r.inventory_id = i.inventory_id
-INNER JOIN public.film f ON i.film_id = f.film_id
-WHERE LOWER(c.first_name) = LOWER('Baktygul') AND LOWER(c.last_name) = LOWER('Karabaeva') 
-  AND LOWER(f.title) = LOWER('Interstellar')
-  AND r.rental_date = '2017-06-01 11:00:00'::timestamp
-  AND NOT EXISTS (
-    SELECT 1 FROM public.payment p 
-    WHERE p.rental_id = r.rental_id
-)
-RETURNING payment_id, rental_id, amount, payment_date;
-
--- Payment for "The Matrix" rental
-INSERT INTO public.payment (customer_id, staff_id, rental_id, amount, payment_date)
-SELECT 
-    c.customer_id,
-    1,
-    r.rental_id,
-    19.99,
-    '2017-06-01 12:00:00'::timestamp
-FROM public.customer c
-INNER JOIN public.rental r ON c.customer_id = r.customer_id
-INNER JOIN public.inventory i ON r.inventory_id = i.inventory_id
-INNER JOIN public.film f ON i.film_id = f.film_id
-WHERE LOWER(c.first_name) = LOWER('Baktygul') AND LOWER(c.last_name) = LOWER('Karabaeva')
-  AND LOWER(f.title) = LOWER('The Matrix')
-  AND r.rental_date = '2017-06-01 12:00:00'::timestamp
-  AND NOT EXISTS (
-    SELECT 1 FROM public.payment p 
-    WHERE p.rental_id = r.rental_id
+        SELECT 1 FROM public.payment p
+        WHERE p.rental_id = r.rental_id
 )
 RETURNING payment_id, rental_id, amount, payment_date;
 
@@ -474,26 +293,26 @@ COMMIT;
 -- Check films were added
 SELECT film_id, title, rental_rate, rental_duration 
 FROM public.film 
-WHERE LOWER(title) IN (LOWER('Serendipity'), LOWER('Interstellar'), LOWER('The Matrix'));
+WHERE LOWER(title) IN ('serendipity', 'interstellar', 'the matrix');
 
 -- Check actors were added
 SELECT actor_id, first_name, last_name 
 FROM public.actor 
-WHERE LOWER(last_name) IN (LOWER('Cusack'), LOWER('Beckinsale'), LOWER('McConaughey'), LOWER('Hathaway'), LOWER('Reeves'), LOWER('Fishburne'));
+WHERE LOWER(last_name) IN ('cusack', 'beckinsale', 'mcconaughey', 'hathaway', 'reeves', 'fishburne');
 
 -- Check film-actor relationships
 SELECT f.title, a.first_name, a.last_name
 FROM public.film_actor fa
 INNER JOIN public.film f ON fa.film_id = f.film_id
 INNER JOIN public.actor a ON fa.actor_id = a.actor_id
-WHERE LOWER(f.title) IN (LOWER('Serendipity'), LOWER('Interstellar'), LOWER('The Matrix'))
+WHERE LOWER(f.title) IN ('serendipity', 'interstellar', 'the matrix')
 ORDER BY f.title, a.last_name;
 
 -- Check inventory
 SELECT i.inventory_id, f.title, i.store_id
 FROM public.inventory i
 INNER JOIN public.film f ON i.film_id = f.film_id
-WHERE LOWER(f.title) IN (LOWER('Serendipity'), LOWER('Interstellar'), LOWER('The Matrix'));
+WHERE LOWER(f.title) IN ('serendipity', 'interstellar', 'the matrix');
 
 -- Check customer update and rentals
 SELECT 
@@ -505,7 +324,7 @@ SELECT
 FROM public.customer c
 LEFT JOIN public.rental r ON c.customer_id = r.customer_id
 LEFT JOIN public.payment p ON c.customer_id = p.customer_id
-WHERE LOWER(c.first_name) = LOWER('Baktygul') AND LOWER(c.last_name) = LOWER('Karabaeva')
+WHERE LOWER(c.first_name) = 'baktygul' AND LOWER(c.last_name) = 'karabaeva'
 GROUP BY c.customer_id, c.first_name, c.last_name;
 
 -- Check rental details for your movies
@@ -520,5 +339,5 @@ INNER JOIN public.customer c ON r.customer_id = c.customer_id
 INNER JOIN public.inventory i ON r.inventory_id = i.inventory_id
 INNER JOIN public.film f ON i.film_id = f.film_id
 LEFT JOIN public.payment p ON r.rental_id = p.rental_id
-WHERE LOWER(c.first_name) = LOWER('Baktygul') AND LOWER(c.last_name) = LOWER('Karabaeva')
+WHERE LOWER(c.first_name) = 'baktygul' AND LOWER(c.last_name) = 'karabaeva'
 ORDER BY r.rental_date;

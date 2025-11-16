@@ -95,3 +95,27 @@ TRUNCATE table_to_delete;
 -- b) Duration of each operation (DELETE, TRUNCATE):
 -- Answer: DELETE took 9.2s, while TRUNCATE operated in 0.0s
 
+/* Conclution: TRUNCATE is much faster and more space-efficient than DELETE for clearing an entire table. 
+               DELETE is slower and may require VACUUM to reclaim space.
+ 
+ Performance:
+
+DELETE is slow (9.2s) because it removes rows individually and generates write-ahead log entries for each row.
+
+TRUNCATE is extremely fast (0.0s) because it simply deallocates all data pages without logging individual row deletions.
+
+Space usage:
+
+After DELETE, the table still occupies most of its original space (575 MB) because PostgreSQL does not immediately reclaim disk space.
+
+VACUUM FULL is required to reclaim space after DELETE, reducing it to 383 MB.
+
+TRUNCATE instantly frees almost all space, leaving only minimal overhead (8192 bytes).
+
+Best practice:
+
+Use DELETE when you need conditional removal of specific rows.
+
+Use TRUNCATE for removing all rows from a table efficiently. */
+
+
