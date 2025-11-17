@@ -33,7 +33,7 @@ SELECT
  
  ) AS new_films(title, description, release_year, rental_duration, rental_rate, 
                length, replacement_cost, rating, special_features)
- LEFT JOIN (SELECT language_id FROM public.language WHERE LOWER(name) = 'English' LIMIT 1) AS lang ON TRUE 
+ LEFT JOIN (SELECT language_id FROM public.language WHERE LOWER(name) = 'english' LIMIT 1) AS lang ON TRUE 
  WHERE NOT EXISTS (
  		SELECT 1 FROM public.film WHERE film.title = new_films.title
  )
