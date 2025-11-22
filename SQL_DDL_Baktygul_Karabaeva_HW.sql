@@ -2,6 +2,8 @@
 
 -- 1. DATABASE AND SCHEMA CREATION
 -- =====================================================
+-- Drop existing database if exists (for reusability)
+DROP DATABASE IF EXISTS social_media_platform;
 
 -- Create new database
 CREATE DATABASE social_media_platform
@@ -57,8 +59,8 @@ COMMENT ON COLUMN social_network.users.is_active IS 'Account status - false for 
 COMMENT ON COLUMN social_network.users.created_at IS 'Timestamp with timezone when account was created';
 
 -- Create index on lowercase email and username for case-insensitive lookups
-CREATE UNIQUE INDEX idx_users_email_lower ON social_network.users(LOWER(email));
-CREATE UNIQUE INDEX idx_users_username_lower ON social_network.users(LOWER(username));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON social_network.users(LOWER(email));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON social_network.users(LOWER(username));
 
 -- Table: LOCATIONS
 -- Geographic location information for users and posts
@@ -82,6 +84,9 @@ CREATE TABLE IF NOT EXISTS social_network.locations (
     CONSTRAINT fk_locations_user FOREIGN KEY (user_id) 
         REFERENCES social_network.users(user_id) ON DELETE CASCADE
 );
+
+ALTER TABLE social_network.locations
+ADD CONSTRAINT locations_unique UNIQUE (user_id, country, city);
 
 COMMENT ON TABLE social_network.locations IS 'Geographic location data for users and posts';
 COMMENT ON COLUMN social_network.locations.user_id IS 'Optional reference to user who created/owns this location';
@@ -108,7 +113,8 @@ CREATE TABLE IF NOT EXISTS social_network.user_profiles (
         date_of_birth <= CURRENT_DATE ),
     -- CHECK: Date of birth must be after January 1, 2000 for platform usage (Requirement #6.1)
     -- Note: This might be too restrictive in practice, but following requirements
-    CONSTRAINT chk_profiles_dob_after_2000 CHECK (date_of_birth > '2000-01-01'::DATE),
+    -- Removed the following Check constraint due to redundancy
+    --CONSTRAINT chk_profiles_dob_after_2000 CHECK (date_of_birth > '2000-01-01'::DATE),
     -- CHECK: Full name must not be empty (Requirement #6.5 - NOT NULL)
     CONSTRAINT chk_profiles_fullname_not_empty CHECK (LENGTH(TRIM(full_name)) > 0),
     -- UNIQUE: One profile per user (Requirement #6.4)
@@ -210,7 +216,7 @@ COMMENT ON TABLE social_network.hashtags IS 'Hashtag definitions for content cat
 COMMENT ON COLUMN social_network.hashtags.name IS 'Hashtag text without # symbol';
 
 -- Create index on lowercase hashtag name for case-insensitive lookups
-CREATE UNIQUE INDEX idx_hashtags_name_lower ON social_network.hashtags(LOWER(name));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hashtags_name_lower ON social_network.hashtags(LOWER(name));
 
 -- Table: POST_HASHTAGS
 -- Many-to-many relationship between posts and hashtags
@@ -255,6 +261,9 @@ CREATE TABLE IF NOT EXISTS social_network.comments (
 );
 
 CREATE INDEX IF NOT EXISTS idx_comments_post_id ON social_network.comments(post_id);
+
+ALTER TABLE social_network.comments
+ADD CONSTRAINT comments_unique UNIQUE (post_id, user_id, content);
 
 COMMENT ON TABLE social_network.comments IS 'User comments on posts with nested reply support';
 COMMENT ON COLUMN social_network.comments.parent_comment_id IS 'Reference to parent comment for nested replies';
@@ -314,6 +323,9 @@ CREATE TABLE IF NOT EXISTS social_network.shares (
     CONSTRAINT fk_shares_post FOREIGN KEY (post_id) 
         REFERENCES social_network.posts(post_id) ON DELETE CASCADE
 );
+
+ALTER TABLE social_network.shares
+ADD CONSTRAINT shares_unique UNIQUE (user_id, post_id, comment);
 
 COMMENT ON TABLE social_network.shares IS 'User post sharing activity';
 COMMENT ON COLUMN social_network.shares.comment IS 'Optional comment added when sharing';
@@ -403,6 +415,9 @@ CREATE TABLE IF NOT EXISTS social_network.messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_receiver_id ON social_network.messages(receiver_id);
 
+ALTER TABLE social_network.messages
+ADD CONSTRAINT messages_unique UNIQUE (sender_id, receiver_id, body);
+
 COMMENT ON TABLE social_network.messages IS 'Direct messages between users';
 COMMENT ON COLUMN social_network.messages.is_read IS 'Message read status';
 
@@ -430,6 +445,9 @@ CREATE TABLE IF NOT EXISTS social_network.notifications (
 
 CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON social_network.notifications(user_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON social_network.notifications(user_id, is_read);
+
+ALTER TABLE social_network.notifications
+ADD CONSTRAINT notifications_unique UNIQUE (user_id, message);
 
 COMMENT ON TABLE social_network.notifications IS 'User notifications for platform activities';
 COMMENT ON COLUMN social_network.notifications.type IS 'Notification type: like, comment, share, follow, etc.';
@@ -473,11 +491,13 @@ FROM (
         ((SELECT user_id FROM social_network.users WHERE LOWER(username) = 'bob_smith'),
          'United States', 'New York', '2023-03-20 14:50:00+00'::timestamp),
 
-        -- Austin (no user_id)
-        (NULL, 'United States', 'Austin', '2023-05-10 09:20:00+00'::timestamp),
-
-        -- Miami (no user_id)
-        (NULL, 'United States', 'Miami', '2023-07-22 16:25:00+00'::timestamp)
+        -- carol_white
+        ((SELECT user_id FROM social_network.users WHERE LOWER(username) = 'carol_white'), 
+        'United States', 'Austin', '2023-05-10 09:20:00+00'::timestamp),
+        
+        -- david_brown
+        ((SELECT user_id FROM social_network.users WHERE LOWER(username) = 'david_brown'), 
+        'United States', 'Miami', '2023-07-22 16:25:00+00'::timestamp)
 ) AS v (user_id, country, city, created_at)
 ON CONFLICT DO NOTHING;
 
