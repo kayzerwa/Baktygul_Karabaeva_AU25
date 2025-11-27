@@ -7,17 +7,17 @@
 */
 -- ============================================================================
 
-CREATE OR REPLACE VIEW sales_revenue_by_category_qtr AS
+CREATE OR REPLACE VIEW public.sales_revenue_by_category_qtr AS
 SELECT 
     c.name AS category,
     SUM(p.amount) AS total_revenue
 FROM 
-    payment p
-    INNER JOIN rental r ON p.rental_id = r.rental_id
-    INNER JOIN inventory i ON r.inventory_id = i.inventory_id
-    INNER JOIN film f ON i.film_id = f.film_id
-    INNER JOIN film_category fc ON f.film_id = fc.film_id
-    INNER JOIN category c ON fc.category_id = c.category_id
+    public.payment p
+    INNER JOIN public.rental r ON p.rental_id = r.rental_id
+    INNER JOIN public.inventory i ON r.inventory_id = i.inventory_id
+    INNER JOIN public.film f ON i.film_id = f.film_id
+    INNER JOIN public.film_category fc ON f.film_id = fc.film_id
+    INNER JOIN public.category c ON fc.category_id = c.category_id
 WHERE 
     EXTRACT(QUARTER FROM p.payment_date) = EXTRACT(QUARTER FROM CURRENT_DATE)
     AND EXTRACT(YEAR FROM p.payment_date) = EXTRACT(YEAR FROM CURRENT_DATE)
@@ -29,7 +29,7 @@ ORDER BY
     total_revenue DESC;
 
 -- Test the view
-SELECT * FROM sales_revenue_by_category_qtr;
+SELECT * FROM public.sales_revenue_by_category_qtr;
 
 
 -- ============================================================================
@@ -38,7 +38,7 @@ SELECT * FROM sales_revenue_by_category_qtr;
     the same result as the 'sales_revenue_by_category_qtr' view. */
 -- ============================================================================
 
-CREATE OR REPLACE FUNCTION get_sales_revenue_by_category_qtr(p_quarter INT, p_year INT)
+CREATE OR REPLACE FUNCTION public.get_sales_revenue_by_category_qtr(p_quarter INT, p_year INT)
 RETURNS TABLE(category VARCHAR, total_revenue NUMERIC) AS $$
 BEGIN
     -- Validate quarter parameter
@@ -56,12 +56,12 @@ BEGIN
         c.name::VARCHAR AS category,
         SUM(p.amount) AS total_revenue
     FROM 
-        payment p
-        INNER JOIN rental r ON p.rental_id = r.rental_id
-        INNER JOIN inventory i ON r.inventory_id = i.inventory_id
-        INNER JOIN film f ON i.film_id = f.film_id
-        INNER JOIN film_category fc ON f.film_id = fc.film_id
-        INNER JOIN category c ON fc.category_id = c.category_id
+        public.payment p
+        INNER JOIN public.rental r ON p.rental_id = r.rental_id
+        INNER JOIN public.inventory i ON r.inventory_id = i.inventory_id
+        INNER JOIN public.film f ON i.film_id = f.film_id
+        INNER JOIN public.film_category fc ON f.film_id = fc.film_id
+        INNER JOIN public.category c ON fc.category_id = c.category_id
     WHERE 
         EXTRACT(QUARTER FROM p.payment_date) = p_quarter
         AND EXTRACT(YEAR FROM p.payment_date) = p_year
@@ -75,7 +75,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Test the function
-SELECT * FROM get_sales_revenue_by_category_qtr(1, 2017);
+SELECT * FROM public.get_sales_revenue_by_category_qtr(1, 2017);
 
 
 -- ============================================================================
@@ -114,14 +114,14 @@ BEGIN
             COUNT(r.rental_id) AS rental_count,
             ROW_NUMBER() OVER (PARTITION BY co.country ORDER BY COUNT(r.rental_id) DESC, f.title) AS rn
         FROM 
-            country co
-            INNER JOIN city ci ON co.country_id = ci.country_id
-            INNER JOIN address a ON ci.city_id = a.city_id
-            INNER JOIN customer cust ON a.address_id = cust.address_id
-            INNER JOIN rental r ON cust.customer_id = r.customer_id
-            INNER JOIN inventory i ON r.inventory_id = i.inventory_id
-            INNER JOIN film f ON i.film_id = f.film_id
-            INNER JOIN language l ON f.language_id = l.language_id
+            public.country co
+            INNER JOIN public.city ci ON co.country_id = ci.country_id
+            INNER JOIN public.address a ON ci.city_id = a.city_id
+            INNER JOIN public.customer cust ON a.address_id = cust.address_id
+            INNER JOIN public.rental r ON cust.customer_id = r.customer_id
+            INNER JOIN public.inventory i ON r.inventory_id = i.inventory_id
+            INNER JOIN public.film f ON i.film_id = f.film_id
+            INNER JOIN public.language l ON f.language_id = l.language_id
         WHERE 
             co.country = ANY(p_countries)
         GROUP BY 
@@ -158,7 +158,7 @@ SELECT * FROM public.most_popular_films_by_countries(ARRAY['Afghanistan','Brazil
     Query (example):select * from core.films_in_stock_by_title('%love%’); */
 
 -- ============================================================================
-DROP FUNCTION films_in_stock_by_title(text);
+DROP FUNCTION public.films_in_stock_by_title(text);
 
 CREATE OR REPLACE FUNCTION public.films_in_stock_by_title(p_title_pattern TEXT)
 RETURNS TABLE(
@@ -188,9 +188,9 @@ BEGIN
     
     -- Check if any matching films are in stock
     SELECT COUNT(DISTINCT f.film_id) INTO v_count
-    FROM film f
-    INNER JOIN inventory i ON f.film_id = i.film_id
-    LEFT JOIN rental r ON i.inventory_id = r.inventory_id
+    FROM public.film f
+    INNER JOIN public.inventory i ON f.film_id = i.film_id
+    LEFT JOIN public.rental r ON i.inventory_id = r.inventory_id
     WHERE f.title ILIKE p_title_pattern
       AND (r.return_date IS NOT NULL OR r.rental_id IS NULL);
     
@@ -210,10 +210,10 @@ BEGIN
             r.rental_date,
             r.return_date
         FROM 
-            film f
-            INNER JOIN language l ON f.language_id = l.language_id
-            INNER JOIN inventory i ON f.film_id = i.film_id
-            LEFT JOIN rental r ON i.inventory_id = r.inventory_id
+            public.film f
+            INNER JOIN public.language l ON f.language_id = l.language_id
+            INNER JOIN public.inventory i ON f.film_id = i.film_id
+            LEFT JOIN public.rental r ON i.inventory_id = r.inventory_id
         WHERE 
             f.title ILIKE p_title_pattern
             AND (r.return_date IS NOT NULL OR r.rental_id IS NULL)
@@ -291,7 +291,7 @@ BEGIN
     
     -- Check if language exists
     SELECT language_id INTO v_language_id
-    FROM language
+    FROM public.language
     WHERE name = p_language;
     
     IF v_language_id IS NULL THEN
@@ -300,7 +300,7 @@ BEGIN
     
     -- Check for duplicate movie (same title and release year)
     SELECT COUNT(*) INTO v_duplicate_count
-    FROM film
+    FROM public.film
     WHERE title = p_title 
       AND release_year = v_release_year;
     
@@ -310,10 +310,10 @@ BEGIN
     
     -- Generate new film_id
     SELECT COALESCE(MAX(film_id), 0) + 1 INTO v_new_film_id
-    FROM film;
+    FROM public.film;
     
     -- Insert new movie
-    INSERT INTO film (
+    INSERT INTO public.film (
         film_id,
         title,
         release_year,
@@ -339,7 +339,12 @@ $$ LANGUAGE plpgsql;
 
 -- Test the function
 -- First, ensure Klingon language exists (add if needed for testing)
-INSERT INTO language (name) VALUES ('Klingon') ON CONFLICT DO NOTHING;
+INSERT INTO public.language (name)
+SELECT 'Klingon'
+WHERE NOT EXISTS (
+    SELECT 1 FROM public.language WHERE lower(name) = lower('Klingon')
+);
+
 
 -- Test with default parameters
 SELECT public.new_movie('How to Train Your Dragon');
@@ -348,4 +353,4 @@ SELECT public.new_movie('How to Train Your Dragon');
 SELECT public.new_movie('Avatar: Fire and Ash', 2025, 'English');
 
 -- Verify the insertion
-SELECT * FROM film WHERE title = 'How to Train Your Dragon';
+SELECT * FROM public.film WHERE title = 'How to Train Your Dragon';
