@@ -1,0 +1,542 @@
+﻿Task 6: Analysis of dvdrental Database Functions
+1. Operations Performed by Existing Functions
+film_in_stock(p_film_id, p_store_id)
+Purpose: Returns a list of inventory IDs for a specific film that are currently available (in stock) at a specific store.
+Operation:
+* Accepts a film ID and store ID as parameters
+* Queries the inventory table for matching film and store
+* Uses inventory_in_stock() to check availability
+* Returns inventory IDs where the item is not currently rented out
+Business use: Used when a customer wants to rent a specific movie - helps staff quickly find available copies.
+________________
+
+
+film_not_in_stock(p_film_id, p_store_id)
+Purpose: Returns a list of inventory IDs for a specific film that are currently NOT available (rented out) at a specific store.
+Operation:
+* Similar to film_in_stock but with inverted logic
+* Returns inventory IDs where NOT inventory_in_stock(inventory_id) is TRUE
+* Shows which copies are currently rented out
+Business use: Helps track which copies are out on rental, useful for inventory management.
+________________
+
+
+inventory_in_stock(p_inventory_id)
+Purpose: Checks whether a specific inventory item is currently available for rental.
+Operation:
+* Looks up the most recent rental record for the given inventory ID
+* Returns TRUE if the item has been returned (return_date IS NOT NULL) or never rented
+* Returns FALSE if currently rented out (return_date IS NULL)
+Business use: Core function for availability checking - used by both film_in_stock and film_not_in_stock.
+________________
+
+
+get_customer_balance(p_customer_id, p_effective_date)
+Purpose: Calculates the outstanding balance (amount owed) for a customer as of a specific date.
+Operation:
+* Sums all rental charges from the payment table for the customer up to the effective date
+* The function comments typically describe business requirements such as:
+   * Late fees for overdue rentals
+   * Discounts for early returns
+   * Outstanding charges for unreturned items
+* Note: The standard implementation often only implements basic payment summation, not all the commented requirements
+Business use: Determines how much a customer owes before allowing new rentals.
+________________
+
+
+inventory_held_by_customer(p_inventory_id)
+Purpose: Returns the customer ID of whoever currently has a specific inventory item rented.
+Operation:
+* Finds the most recent rental record for the inventory ID
+* If return_date IS NULL, returns the customer_id
+* If returned, returns NULL
+Business use: Helps track who has a specific DVD copy, useful for customer service and lost item tracking.
+________________
+
+
+rewards_report(min_monthly_purchases, min_dollar_amount_purchased)
+Purpose: Generates a report of customers eligible for rewards based on purchase activity.
+Operation:
+* Identifies customers who made at least min_monthly_purchases in the last month
+* AND spent at least min_dollar_amount_purchased total
+* Uses dynamic SQL (tmpSQL variable) to build and execute the query
+* Problem: Often returns 0 rows due to date filtering issues
+Business use: Marketing tool to identify loyal customers for rewards programs.
+________________
+
+
+last_day(date)
+Purpose: Returns the last day of the month for a given date (Oracle compatibility function).
+Operation:
+* Uses date_trunc to get the first day of the month
+* Adds 1 month, then subtracts 1 day
+* Returns the last day of that month as a DATE
+Business use: Date calculations for reporting periods, billing cycles, rental period end dates.
+________________
+
+
+2. Why rewards_report Returns 0 Rows & Solution
+Problem Analysis:
+The rewards_report function typically fails because:
+1. Date range issue: It filters for the "last month" but the dvdrental sample data is from 2005-2017
+2. Hardcoded date logic: Uses CURRENT_DATE which is way past the sample data period
+3. No data in range: No payments exist in the calculated date range
+Corrected Function:
+CREATE OR REPLACE FUNCTION rewards_report(
+    min_monthly_purchases INTEGER,
+    min_dollar_amount_purchased NUMERIC
+)
+RETURNS TABLE(
+    customer_id INTEGER,
+    first_name VARCHAR,
+    last_name VARCHAR,
+    email VARCHAR,
+    rental_count INTEGER,
+    total_amount NUMERIC
+) AS $$
+DECLARE
+    last_payment_date DATE;
+    report_start_date DATE;
+    report_end_date DATE;
+BEGIN
+    -- Find the most recent payment date in the database
+    SELECT MAX(payment_date)::DATE INTO last_payment_date
+    FROM payment;
+    
+    -- If no payments exist, raise exception
+    IF last_payment_date IS NULL THEN
+        RAISE EXCEPTION 'No payment data available in the database';
+    END IF;
+    
+    -- Calculate the report period: last complete month before the most recent payment
+    report_end_date := DATE_TRUNC('month', last_payment_date)::DATE - INTERVAL '1 day';
+    report_start_date := DATE_TRUNC('month', report_end_date)::DATE;
+    
+    -- Return customers meeting the criteria
+    RETURN QUERY
+    SELECT 
+        c.customer_id,
+        c.first_name,
+        c.last_name,
+        c.email,
+        COUNT(p.payment_id)::INTEGER AS rental_count,
+        SUM(p.amount) AS total_amount
+    FROM 
+        customer c
+        INNER JOIN payment p ON c.customer_id = p.customer_id
+    WHERE 
+        p.payment_date >= report_start_date
+        AND p.payment_date <= report_end_date + INTERVAL '1 day'
+    GROUP BY 
+        c.customer_id, c.first_name, c.last_name, c.email
+    HAVING 
+        COUNT(p.payment_id) >= min_monthly_purchases
+        AND SUM(p.amount) >= min_dollar_amount_purchased
+    ORDER BY 
+        total_amount DESC;
+END;
+$$ LANGUAGE plpgsql;
+
+
+-- Test the corrected function
+-- SELECT * FROM rewards_report(5, 20.00);
+
+
+Key fixes:
+* Uses actual data date range instead of CURRENT_DATE
+* Finds the most recent payment date dynamically
+* Calculates report period based on actual data
+* Removed dynamic SQL (tmpSQL) - not needed for this logic
+* Added proper error handling
+________________
+
+
+3. Functions That Can Be Removed
+Candidate for removal: film_not_in_stock
+Reasoning:
+1. Redundant logic: It's simply the inverse of film_in_stock
+2. Low business value: Knowing what's NOT available is less useful than knowing what IS available
+3. Can be replaced: Can easily use film_in_stock with NOT operator if needed
+4. Maintenance burden: Two functions to maintain for essentially the same query
+Alternative approach:
+-- Instead of calling film_not_in_stock(123, 1)
+-- Use this query:
+SELECT inventory_id 
+FROM inventory 
+WHERE film_id = 123 
+  AND store_id = 1 
+  AND inventory_id NOT IN (
+      SELECT film_in_stock(123, 1)
+  );
+
+
+Better design: Keep film_in_stock and inventory_in_stock as core functions. Application logic or queries can handle the "not in stock" scenario when needed.
+________________
+
+
+4. Implementing Missing Requirements in get_customer_balance
+The function comments typically describe business requirements that aren't implemented:
+Missing requirements:
+1. Late fees: Charge extra for overdue rentals
+2. Discounts: Reduce charges for early returns
+3. Unreturned item charges: Add replacement cost for items not returned
+Enhanced Implementation:
+CREATE OR REPLACE FUNCTION get_customer_balance(
+    p_customer_id INTEGER,
+    p_effective_date TIMESTAMP
+)
+RETURNS NUMERIC AS $$
+DECLARE
+    v_balance NUMERIC := 0;
+    v_rental_record RECORD;
+    v_days_late INTEGER;
+    v_late_fee NUMERIC;
+    v_days_early INTEGER;
+    v_discount NUMERIC;
+BEGIN
+    -- Validate customer exists
+    IF NOT EXISTS (SELECT 1 FROM customer WHERE customer_id = p_customer_id) THEN
+        RAISE EXCEPTION 'Customer ID % does not exist', p_customer_id;
+    END IF;
+    
+    -- Calculate balance from payments (actual charges)
+    SELECT COALESCE(SUM(amount), 0) INTO v_balance
+    FROM payment
+    WHERE customer_id = p_customer_id
+      AND payment_date <= p_effective_date;
+    
+    -- Process each rental for additional charges/discounts
+    FOR v_rental_record IN
+        SELECT 
+            r.rental_id,
+            r.rental_date,
+            r.return_date,
+            f.rental_duration,
+            f.rental_rate,
+            f.replacement_cost
+        FROM rental r
+        INNER JOIN inventory i ON r.inventory_id = i.inventory_id
+        INNER JOIN film f ON i.film_id = f.film_id
+        WHERE r.customer_id = p_customer_id
+          AND r.rental_date <= p_effective_date
+    LOOP
+        -- Check for unreturned items (as of effective date)
+        IF v_rental_record.return_date IS NULL 
+           AND p_effective_date > v_rental_record.rental_date + (v_rental_record.rental_duration || ' days')::INTERVAL
+        THEN
+            -- Check if still not returned by effective date
+            -- Add late fee: $1 per day late
+            v_days_late := EXTRACT(DAY FROM p_effective_date - 
+                          (v_rental_record.rental_date + (v_rental_record.rental_duration || ' days')::INTERVAL));
+            v_late_fee := v_days_late * 1.00;
+            v_balance := v_balance + v_late_fee;
+            
+            -- If more than 30 days late, charge replacement cost
+            IF v_days_late > 30 THEN
+                v_balance := v_balance + v_rental_record.replacement_cost;
+            END IF;
+            
+        -- Check for early returns (discount scenario)
+        ELSIF v_rental_record.return_date IS NOT NULL 
+              AND v_rental_record.return_date < v_rental_record.rental_date + (v_rental_record.rental_duration || ' days')::INTERVAL
+        THEN
+            -- Return at least 1 day early: 10% discount on rental rate
+            v_days_early := EXTRACT(DAY FROM 
+                           (v_rental_record.rental_date + (v_rental_record.rental_duration || ' days')::INTERVAL) - 
+                           v_rental_record.return_date);
+            
+            IF v_days_early >= 1 THEN
+                v_discount := v_rental_record.rental_rate * 0.10;
+                v_balance := v_balance - v_discount;
+            END IF;
+        END IF;
+    END LOOP;
+    
+    RETURN ROUND(v_balance, 2);
+END;
+$$ LANGUAGE plpgsql;
+
+
+-- Test the enhanced function
+-- SELECT get_customer_balance(1, '2007-04-30 23:59:59');
+
+
+Implemented Requirements:
+* Base payment summation
+* Late fees ($1/day for overdue items)
+* Replacement cost charge (30+ days late)
+* Early return discount (10% off for 1+ day early)
+* Unreturned item tracking
+* Date-aware calculations
+________________
+
+
+5. How group_concat and _group_concat Functions Work
+Purpose:
+These functions implement string aggregation (concatenating multiple row values into a single string) - similar to string_agg in modern PostgreSQL.
+_group_concat(text, text) - State Transition Function
+CREATE OR REPLACE FUNCTION _group_concat(text, text)
+RETURNS text AS $$
+BEGIN
+    -- If accumulator is NULL, return the new value
+    IF $1 IS NULL THEN
+        RETURN $2;
+    -- If new value is NULL, return accumulator
+    ELSIF $2 IS NULL THEN
+        RETURN $1;
+    -- Otherwise, concatenate with comma separator
+    ELSE
+        RETURN $1 || ', ' || $2;
+    END IF;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+
+How it works:
+* Takes two text arguments: accumulator ($1) and new value ($2)
+* Builds up a comma-separated string across multiple calls
+* Handles NULL values gracefully
+group_concat - Aggregate Function
+CREATE AGGREGATE group_concat(text) (
+    SFUNC = _group_concat,
+    STYPE = text,
+    INITCOND = ''
+);
+
+
+Components:
+* SFUNC: State transition function (_group_concat)
+* STYPE: State type (text) - the accumulator type
+* INITCOND: Initial condition (empty string)
+Where Used:
+These functions are typically used in views like:
+-- Example from actor_info view
+SELECT 
+    a.actor_id,
+    a.first_name,
+    a.last_name,
+    group_concat(DISTINCT c.name) AS film_categories
+FROM actor a
+JOIN film_actor fa ON a.actor_id = fa.actor_id
+JOIN film f ON fa.film_id = f.film_id
+JOIN film_category fc ON f.film_id = fc.film_id
+JOIN category c ON fc.category_id = c.category_id
+GROUP BY a.actor_id, a.first_name, a.last_name;
+
+
+Output Example:
+actor_id | first_name | last_name | film_categories
+---------|------------|-----------|------------------
+1        | PENELOPE   | GUINESS   | Animation, Drama, Horror, Sci-Fi
+
+
+Modern Alternative: PostgreSQL 9.0+ has string_agg():
+SELECT string_agg(DISTINCT c.name, ', ' ORDER BY c.name) AS film_categories
+FROM category c;
+
+
+________________
+
+
+6. What Does last_updated Function Do? Where Is It Used?
+Function definition:
+CREATE OR REPLACE FUNCTION last_updated()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.last_update = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+
+Purpose:
+This is a trigger function that automatically updates the last_update timestamp column whenever a row is modified.
+How It Works:
+1. Trigger context: Called automatically by BEFORE UPDATE triggers
+2. NEW record: Modifies the NEW record (the row being updated)
+3. Timestamp update: Sets last_update to current timestamp
+4. Returns NEW: The modified row is then stored in the database
+Where It's Used:
+Applied to almost every table in the dvdrental database via triggers:
+-- Example: actor table
+CREATE TRIGGER last_updated
+    BEFORE UPDATE ON actor
+    FOR EACH ROW
+    EXECUTE FUNCTION last_updated();
+
+
+-- Example: customer table
+CREATE TRIGGER last_updated
+    BEFORE UPDATE ON customer
+    FOR EACH ROW
+    EXECUTE FUNCTION last_updated();
+
+
+-- Example: film table
+CREATE TRIGGER last_updated
+    BEFORE UPDATE ON film
+    FOR EACH ROW
+    EXECUTE FUNCTION last_updated();
+
+
+Tables Using This Trigger:
+* actor
+* address
+* category
+* city
+* country
+* customer
+* film
+* film_actor
+* film_category
+* inventory
+* language
+* rental
+* staff
+* store
+Benefits:
+* Automatic audit trail: Tracks when records were last modified
+* No application logic needed: Database handles it automatically
+* Consistent: Can't forget to update the timestamp
+* Data integrity: Ensures every update is tracked
+Example:
+-- Update a customer's email
+UPDATE customer 
+SET email = 'newemail@example.com' 
+WHERE customer_id = 1;
+
+
+-- The last_update column is automatically set to CURRENT_TIMESTAMP
+-- without explicitly mentioning it in the UPDATE statement
+
+
+________________
+
+
+7. What Is tmpSQL Variable For in rewards_report? Can We Remove Dynamic SQL?
+tmpSQL Variable Purpose:
+In the original rewards_report function, tmpSQL is used for dynamic SQL execution:
+-- Original problematic approach
+DECLARE
+    tmpSQL TEXT;
+BEGIN
+    tmpSQL := 'SELECT customer_id, first_name, last_name 
+               FROM customer 
+               WHERE customer_id IN (
+                   SELECT customer_id FROM payment 
+                   WHERE payment_date >= ' || quote_literal(report_start_date) || '
+                   GROUP BY customer_id 
+                   HAVING COUNT(*) >= ' || min_monthly_purchases || '
+               )';
+    
+    RETURN QUERY EXECUTE tmpSQL;
+END;
+
+
+Why Dynamic SQL Was Used:
+1. Unnecessary complexity: The query could be static
+2. Security risk: Opens potential for SQL injection (though parameters help)
+3. Performance: Dynamic SQL prevents query plan caching
+4. Debugging: Harder to debug and test
+Can We Remove EXECUTE Statement?
+Yes, the function doesn't need dynamic SQL at all.
+Why Dynamic SQL Is NOT Needed:
+1. Static parameters: All parameters are known at compile time
+2. No conditional logic: The query structure doesn't change based on inputs
+3. Fixed table structure: We're not building table names dynamically
+4. No meta-programming: Not generating different queries based on runtime conditions
+Refactored Without Dynamic SQL:
+CREATE OR REPLACE FUNCTION rewards_report(
+    min_monthly_purchases INTEGER,
+    min_dollar_amount_purchased NUMERIC
+)
+RETURNS TABLE(
+    customer_id INTEGER,
+    first_name VARCHAR,
+    last_name VARCHAR,
+    email VARCHAR,
+    rental_count INTEGER,
+    total_amount NUMERIC
+) AS $$
+DECLARE
+    last_payment_date DATE;
+    report_start_date DATE;
+    report_end_date DATE;
+BEGIN
+    -- Find actual data date range
+    SELECT MAX(payment_date)::DATE INTO last_payment_date FROM payment;
+    
+    IF last_payment_date IS NULL THEN
+        RAISE EXCEPTION 'No payment data available';
+    END IF;
+    
+    report_end_date := DATE_TRUNC('month', last_payment_date)::DATE - INTERVAL '1 day';
+    report_start_date := DATE_TRUNC('month', report_end_date)::DATE;
+    
+    -- Direct RETURN QUERY - no tmpSQL, no EXECUTE
+    RETURN QUERY
+    SELECT 
+        c.customer_id,
+        c.first_name,
+        c.last_name,
+        c.email,
+        COUNT(p.payment_id)::INTEGER,
+        SUM(p.amount)
+    FROM 
+        customer c
+        INNER JOIN payment p ON c.customer_id = p.customer_id
+    WHERE 
+        p.payment_date >= report_start_date
+        AND p.payment_date < report_end_date + INTERVAL '1 day'
+    GROUP BY 
+        c.customer_id, c.first_name, c.last_name, c.email
+    HAVING 
+        COUNT(p.payment_id) >= min_monthly_purchases
+        AND SUM(p.amount) >= min_dollar_amount_purchased
+    ORDER BY 
+        total_amount DESC;
+END;
+$$ LANGUAGE plpgsql;
+
+
+Benefits of Removing Dynamic SQL:
+Aspect
+	Dynamic SQL
+	Static SQL
+	Performance
+	Poor (no plan caching)
+	Excellent (plan cached)
+	Security
+	Risk of injection
+	Safe, parameterized
+	Readability
+	Poor (string concatenation)
+	Excellent (clear structure)
+	Debugging
+	Difficult
+	Easy
+	Maintenance
+	Complex
+	Simple
+	Type Safety
+	Runtime errors
+	Compile-time checks
+	When Dynamic SQL IS Appropriate:
+Dynamic SQL should ONLY be used when:
+1. Table names are variable: EXECUTE 'SELECT * FROM ' || table_name
+2. Column lists change: Building SELECT based on available columns
+3. Complex conditional logic: Entirely different queries based on parameters
+4. Meta-programming: Generating DDL statements dynamically
+None of these apply to rewards_report, so static SQL is the correct approach.
+________________
+
+
+Summary
+Key findings:
+1. Core inventory functions work well (film_in_stock, inventory_in_stock)
+2. rewards_report needs fixing (date range issues)
+3. film_not_in_stock is redundant (can be removed)
+4. get_customer_balance needs enhancement (missing business logic)
+5. Dynamic SQL should be eliminated (rewards_report)
+6. last_updated is well-designed (good auditing pattern)
+7. group_concat is legacy (use string_agg in modern PostgreSQL)
