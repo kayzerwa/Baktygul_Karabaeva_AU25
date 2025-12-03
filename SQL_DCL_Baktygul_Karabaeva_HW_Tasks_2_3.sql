@@ -4,10 +4,23 @@
 -- ============================================================================
 
 -- Create the user
-CREATE USER rentaluser WITH PASSWORD 'rentalpassword';
+
+DO
+$do$
+BEGIN
+   IF EXISTS (
+      SELECT FROM pg_catalog.pg_roles
+      WHERE  rolname = 'rentaluser') THEN
+
+      RAISE NOTICE 'Role "rentaluser" already exists. Skipping.';
+   ELSE
+      CREATE USER rentaluser WITH PASSWORD 'rentalpassword';
+   END IF;
+END
+$do$;
 
 -- Grant connection privilege to the database
-GRANT CONNECT ON DATABASE dvd_rental TO rentaluser;
+GRANT CONNECT ON DATABASE dvdrental TO rentaluser;
 
 -- Verify user creation
 SELECT usename, usecreatedb, usesuper 
@@ -34,7 +47,7 @@ WHERE grantee = 'rentaluser' AND table_schema = 'public';
 
 -- Test query (run as rentaluser)
 -- Switch to rentaluser to test permissions
-SET ROLE rentaluser;
+/*SET ROLE rentaluser;
 
 -- Test SELECT on customer table
 
@@ -49,16 +62,23 @@ ORDER BY c.customer_id
 LIMIT 5;
 
 
-RESET ROLE;
+RESET ROLE;*/
 
 -- TASK 2.3: Create rental group and add rentaluser
 -- ============================================================================
 
--- Create the rental group (role)
-CREATE ROLE rental;
+-- Create the rental group (role) & add rentaluser to the rental group
 
--- Add rentaluser to the rental group
-GRANT rental TO rentaluser;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_roles WHERE rolname = 'rental'
+    ) THEN
+        CREATE ROLE rental;
+		GRANT rental TO rentaluser;
+    END IF;
+END$$;
+
 
 -- Verify group membership
 SELECT 
@@ -81,20 +101,30 @@ GRANT INSERT, UPDATE ON TABLE public.rental TO rental;
 -- Grant USAGE on sequences (needed for INSERT with auto-increment columns)
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO rental;
 
+-- Grant SELECT permission on ALL tables (needed to read from other tables)
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO rental;
+
 -- Switch to rentaluser (who is member of rental group)
 SET ROLE rentaluser;
 
 -- Test INSERT: Add a new rental record
-
 INSERT INTO public.rental (rental_date, inventory_id, customer_id, return_date, staff_id, last_update)
-VALUES (
-    CURRENT_TIMESTAMP,
-    1,  -- Valid inventory_id
-    1,  -- Valid customer_id
-    CURRENT_TIMESTAMP + INTERVAL '3 days',
-    1,  -- Valid staff_id
+SELECT DISTINCT ON (f.film_id)
+    timestamp '2020-01-01' + (random() * INTERVAL '1 month') + (random() * INTERVAL '24 hours'),
+    i.inventory_id,
+    c.customer_id,
+    NULL,
+    s.staff_id,
     CURRENT_TIMESTAMP
-);
+FROM public.film f
+INNER JOIN public.inventory i ON i.film_id = f.film_id
+INNER JOIN public.store st ON st.store_id = i.store_id
+INNER JOIN public.staff s ON s.store_id = st.store_id
+CROSS JOIN public.customer c
+WHERE LOWER(f.title) = 'jason trap'
+  AND LOWER(c.first_name) = 'barry'
+  AND LOWER(c.last_name) = 'lovelace'
+RETURNING rental_id, rental_date, inventory_id, customer_id;
 
 
 -- Test UPDATE: Update the newly inserted record
@@ -106,7 +136,6 @@ WHERE rental_id = (SELECT MAX(rental_id) FROM public.rental);
 
 
 -- Verify the operations
-/*
 SELECT 
     r.rental_id,
     r.rental_date,
@@ -117,9 +146,8 @@ SELECT
 FROM public.rental r
 ORDER BY r.rental_id DESC
 LIMIT 5;
-*/
 
--- RESET ROLE;
+RESET ROLE;
 
 -- TASK 2.5: Revoke INSERT permission and verify denial
 -- ============================================================================
@@ -137,171 +165,58 @@ FROM information_schema.table_privileges
 WHERE grantee = 'rental' AND table_schema = 'public' AND table_name = 'rental'
 ORDER BY privilege_type;
 
--- Switch to rentaluser to test
--- SET ROLE rentaluser;
-
--- This INSERT should fail with permission denied error
-/*
-INSERT INTO public.rental (rental_date, inventory_id, customer_id, return_date, staff_id, last_update)
-VALUES (
-    CURRENT_TIMESTAMP,
-    2,
-    2,
-    CURRENT_TIMESTAMP + INTERVAL '3 days',
-    1,
-    CURRENT_TIMESTAMP
-);
-*/
--- Expected error: ERROR: permission denied for table rental
-
--- RESET ROLE;
 
 -- TASK 2.6: Create personalized role for a customer with rental/payment history
 -- ============================================================================
 
--- Find a customer with both rental and payment history
-SELECT 
-    c.customer_id,
-    c.first_name,
-    c.last_name,
-    c.email,
-    COUNT(DISTINCT r.rental_id) as rental_count,
-    COUNT(DISTINCT p.payment_id) as payment_count
-FROM public.customer c
-INNER JOIN public.rental r ON c.customer_id = r.customer_id
-INNER JOIN public.payment p ON c.customer_id = p.customer_id
-GROUP BY c.customer_id, c.first_name, c.last_name, c.email
-HAVING COUNT(DISTINCT r.rental_id) > 0 
-   AND COUNT(DISTINCT p.payment_id) > 0
-ORDER BY rental_count DESC
-LIMIT 5;
+CREATE OR REPLACE FUNCTION get_customer_user()
+RETURNS TABLE(customer_id INT, username TEXT, password TEXT) AS $$
+DECLARE
+    selected_customer_id INT;
+    customer_first_name VARCHAR;
+    customer_last_name VARCHAR;
+    new_username VARCHAR;
+    user_password VARCHAR := 'TempPass123!';
+BEGIN
+    SELECT c.customer_id, c.first_name, c.last_name,
+		COUNT(DISTINCT r.rental_id) as rental_count,
+    	COUNT(DISTINCT p.payment_id) as payment_count
+    INTO selected_customer_id, customer_first_name, customer_last_name
+    FROM public.customer c
+    INNER JOIN public.rental r ON c.customer_id = r.customer_id
+	INNER JOIN public.payment p ON c.customer_id = p.customer_id
+    GROUP BY c.customer_id, c.first_name, c.last_name
+	HAVING COUNT(DISTINCT r.rental_id) > 0 
+   		AND COUNT(DISTINCT p.payment_id) > 0
+    ORDER BY rental_count DESC
+    LIMIT 1;
 
--- Using customer: Mary Smith (customer_id = 1)
--- Verify her data exists
-SELECT 
-    'Customer Record' as record_type,
-    COUNT(*) as count
-FROM public.customer c
-WHERE c.customer_id = 1
-UNION ALL
-SELECT 
-    'Rental Records' as record_type,
-    COUNT(*) as count
-FROM public.rental r
-WHERE r.customer_id = 1
-UNION ALL
-SELECT 
-    'Payment Records' as record_type,
-    COUNT(*) as count
-FROM public.payment p
-WHERE p.customer_id = 1;
+    new_username := LOWER('client_' || customer_first_name || '_' || customer_last_name);
 
--- Create personalized role: client_mary_smith
-CREATE ROLE client_mary_smith WITH LOGIN PASSWORD 'marypassword';
+    RETURN QUERY SELECT selected_customer_id, new_username::TEXT, user_password::TEXT;
 
--- Grant connection to database
-GRANT CONNECT ON DATABASE dvd_rental TO client_mary_smith;
+END;
+$$ LANGUAGE plpgsql;
 
--- Grant schema usage
-GRANT USAGE ON SCHEMA public TO client_mary_smith;
 
--- Grant SELECT on customer table (to view their own info)
-GRANT SELECT ON TABLE public.customer TO client_mary_smith;
+DO $$
+DECLARE 
+    uname text;
+	pass text;
+BEGIN
+	SELECT username, password
+	INTO uname, pass
+	FROM get_customer_user();
 
--- Grant SELECT on rental table (to view their rental history)
-GRANT SELECT ON TABLE public.rental TO client_mary_smith;
-
--- Grant SELECT on payment table (to view their payment history)
-GRANT SELECT ON TABLE public.payment TO client_mary_smith;
-
--- Grant SELECT on related tables for complete information
-GRANT SELECT ON TABLE public.film TO client_mary_smith;
-GRANT SELECT ON TABLE public.inventory TO client_mary_smith;
-GRANT SELECT ON TABLE public.store TO client_mary_smith;
-GRANT SELECT ON TABLE public.address TO client_mary_smith;
-GRANT SELECT ON TABLE public.city TO client_mary_smith;
-GRANT SELECT ON TABLE public.country TO client_mary_smith;
-GRANT SELECT ON TABLE public.staff TO client_mary_smith;
-GRANT SELECT ON TABLE public.film_category TO client_mary_smith;
-GRANT SELECT ON TABLE public.category TO client_mary_smith;
-
--- Create a view for the customer's rental data
-CREATE VIEW public.client_mary_smith_rentals AS
-SELECT 
-    r.rental_id,
-    r.rental_date,
-    r.return_date,
-    f.title as film_title,
-    f.description as film_description,
-    f.rating,
-    f.rental_rate,
-    r.inventory_id
-FROM public.rental r
-INNER JOIN public.inventory i ON r.inventory_id = i.inventory_id
-INNER JOIN public.film f ON i.film_id = f.film_id
-WHERE r.customer_id = 1;  -- Mary Smith's customer_id
-
--- Grant access to the personalized view
-GRANT SELECT ON public.client_mary_smith_rentals TO client_mary_smith;
-
--- Create a view for the customer's payment history
-CREATE VIEW public.client_mary_smith_payments AS
-SELECT 
-    p.payment_id,
-    p.amount,
-    p.payment_date,
-    r.rental_date,
-    f.title as film_title
-FROM public.payment p
-INNER JOIN public.rental r ON p.rental_id = r.rental_id
-INNER JOIN public.inventory i ON r.inventory_id = i.inventory_id
-INNER JOIN public.film f ON i.film_id = f.film_id
-WHERE p.customer_id = 1;  -- Mary Smith's customer_id
-
--- Grant access to the payment view
-GRANT SELECT ON public.client_mary_smith_payments TO client_mary_smith;
-
--- TASK 2 VERIFICATION: Summary of all created roles and permissions
--- ============================================================================
-
--- 1. View all users and their attributes
-SELECT 
-    usename as username,
-    usecreatedb as can_create_db,
-    usesuper as is_superuser,
-    valuntil as password_expiry
-FROM pg_user
-WHERE usename IN ('rentaluser', 'client_mary_smith')
-ORDER BY usename;
-
--- 2. View all roles and groups
-SELECT 
-    rolname as role_name,
-    rolcanlogin as can_login,
-    rolsuper as is_superuser
-FROM pg_roles
-WHERE rolname IN ('rentaluser', 'rental', 'client_mary_smith')
-ORDER BY rolname;
-
--- 3. View role memberships
-SELECT 
-    r.rolname as group_role,
-    m.rolname as member_role
-FROM pg_roles r
-INNER JOIN pg_auth_members am ON r.oid = am.roleid
-INNER JOIN pg_roles m ON am.member = m.oid
-WHERE r.rolname = 'rental' OR m.rolname IN ('rentaluser', 'client_mary_smith');
-
--- 4. View all table privileges
-SELECT 
-    grantee,
-    table_schema,
-    table_name,
-    privilege_type
-FROM information_schema.table_privileges
-WHERE grantee IN ('rentaluser', 'rental', 'client_mary_smith')
-  AND table_schema = 'public'
-ORDER BY grantee, table_name, privilege_type;
+	IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = uname) THEN
+		EXECUTE format('CREATE ROLE %I WITH LOGIN PASSWORD %L', uname, pass);
+        EXECUTE format('GRANT CONNECT ON DATABASE dvdrental TO %I', uname);
+		EXECUTE format('GRANT USAGE ON SCHEMA public TO %I', uname);
+        EXECUTE format('GRANT SELECT ON ALL TABLES IN SCHEMA public TO %I', uname);
+    ELSE
+    	RAISE NOTICE 'User % already exists, skipping', uname;
+    END IF;
+END$$;
 
 -- ============================================================================
 -- TASK 3: IMPLEMENT ROW-LEVEL SECURITY
@@ -320,67 +235,45 @@ SELECT
     tablename,
     rowsecurity as rls_enabled
 FROM pg_tables
-WHERE tablename IN ('rental', 'payment')
-  AND schemaname = 'public'
+WHERE LOWER(tablename) IN ('rental', 'payment')
+  AND LOWER(schemaname) = 'public'
 ORDER BY tablename;
 
 
--- TASK 3.2: Create RLS policies for the rental table
+-- TASK 3.2: Configure that role so that the customer can only access their own data in the "rental" and "payment" tables
 -- ============================================================================
+
+-- Create helper function for dynamic customer_id
+CREATE OR REPLACE FUNCTION get_customer_id_from_username()
+RETURNS INT AS $$
+DECLARE
+    cid INT;
+BEGIN
+    SELECT customer_id
+    INTO cid
+    FROM get_customer_user()
+    WHERE username = current_user;
+
+    RETURN cid;
+END;
+$$ LANGUAGE plpgsql;
+
 
 -- Drop existing policies if they exist (for re-running the script)
 DROP POLICY IF EXISTS rental_customer_policy ON public.rental;
-DROP POLICY IF EXISTS rental_admin_policy ON public.rental;
 
--- Create policy: client_mary_smith can only see their own rentals
 CREATE POLICY rental_customer_policy ON public.rental
     FOR SELECT
-    TO client_mary_smith
-    USING (customer_id = 1);  -- Mary Smith's customer_id
+    USING (customer_id = get_customer_id_from_username());
 
--- Create policy for superuser/admin access (optional but recommended)
-CREATE POLICY rental_admin_policy ON public.rental
-    FOR ALL
-    TO postgres
-    USING (true)
-    WITH CHECK (true);
-
--- TASK 3.3: Create RLS policies for the payment table
--- ============================================================================
 
 -- Drop existing policies if they exist
 DROP POLICY IF EXISTS payment_customer_policy ON public.payment;
-DROP POLICY IF EXISTS payment_admin_policy ON public.payment;
 
--- Create policy: client_mary_smith can only see their own payments
+
 CREATE POLICY payment_customer_policy ON public.payment
     FOR SELECT
-    TO client_mary_smith
-    USING (customer_id = 1);  -- Mary Smith's customer_id
-
--- Create policy for superuser/admin access (optional but recommended)
-CREATE POLICY payment_admin_policy ON public.payment
-    FOR ALL
-    TO postgres
-    USING (true)
-    WITH CHECK (true);
-
--- TASK 3.4: Create helper function for dynamic customer identification
--- ============================================================================
-
--- Function to get current customer_id from role name
-CREATE OR REPLACE FUNCTION public.get_current_customer_id()
-RETURNS INTEGER AS $$
-BEGIN
-    -- Extract customer_id from role name or session variable
-    -- For client_mary_smith, returns 1
-    RETURN CASE 
-        WHEN current_user = 'client_mary_smith' THEN 1
-        -- Add more cases for other customer roles as needed
-        ELSE NULL
-    END;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+    USING (customer_id = get_customer_id_from_username()); 
 
 -- TASK 3.5: View all RLS policies
 -- ============================================================================
@@ -407,12 +300,12 @@ SELECT
     COUNT(*) as count
 FROM public.rental r;
 
--- Count Mary Smith's rentals specifically
-SELECT 
-    'Mary Smith rentals only (customer_id=1)' as description,
-    COUNT(*) as count
+-- Total rentals for current login
+SELECT 'Total rentals for this customer' as description, COUNT(*) as count
 FROM public.rental r
-WHERE r.customer_id = 1;
+WHERE r.customer_id = (
+  SELECT customer_id FROM get_customer_user()
+);
 
 -- Count total payments in database (superuser can see all)
 SELECT 
@@ -420,284 +313,18 @@ SELECT
     COUNT(*) as count
 FROM public.payment p;
 
--- Count Mary Smith's payments specifically
-SELECT 
-    'Mary Smith payments only (customer_id=1)' as description,
-    COUNT(*) as count
+-- Total payments for current login 
+SELECT 'Total payments for this customer' as description, COUNT(*) as count
 FROM public.payment p
-WHERE p.customer_id = 1;
+WHERE p.customer_id = (
+  SELECT customer_id FROM get_customer_user()
+);
 
--- Show sample of other customers' data (superuser can see)
-SELECT 
-    c.customer_id,
-    c.first_name,
-    c.last_name,
-    COUNT(DISTINCT r.rental_id) as rental_count
-FROM public.customer c
-LEFT JOIN public.rental r ON c.customer_id = r.customer_id
-WHERE c.customer_id IN (1, 2, 3, 4, 5)
-GROUP BY c.customer_id, c.first_name, c.last_name
-ORDER BY c.customer_id;
+ALTER TABLE public.rental DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payment DISABLE ROW LEVEL SECURITY;
 
--- ============================================================================
--- TASK 3.7: TEST RLS - Switch to client_mary_smith role
--- ============================================================================
+DROP POLICY IF EXISTS rental_customer_policy ON public.rental;
 
--- Switch to the customer role to test RLS
--- SET ROLE client_mary_smith;
+DROP POLICY IF EXISTS payment_customer_policy ON public.payment;
 
--- ============================================================================
--- TEST 1: Query rental table (should ONLY see Mary Smith's rentals)
--- ============================================================================
-
-/*
--- Run this as client_mary_smith
--- This query should return ONLY rentals for customer_id = 1
-SELECT 
-    r.rental_id,
-    r.rental_date,
-    r.return_date,
-    r.customer_id,
-    c.first_name,
-    c.last_name,
-    c.email
-FROM public.rental r
-INNER JOIN public.customer c ON r.customer_id = c.customer_id
-ORDER BY r.rental_date DESC
-LIMIT 10;
-
--- Count visible rentals (should match Mary Smith's count only)
-SELECT 
-    'Rentals visible to client_mary_smith' as description,
-    COUNT(*) as count
-FROM public.rental r;
-*/
-
--- ============================================================================
--- TEST 2: Query payment table (should ONLY see Mary Smith's payments)
--- ============================================================================
-
-/*
--- Run this as client_mary_smith
--- This query should return ONLY payments for customer_id = 1
-SELECT 
-    p.payment_id,
-    p.amount,
-    p.payment_date,
-    p.customer_id,
-    c.first_name,
-    c.last_name
-FROM public.payment p
-INNER JOIN public.customer c ON p.customer_id = c.customer_id
-ORDER BY p.payment_date DESC
-LIMIT 10;
-
--- Count visible payments (should match Mary Smith's count only)
-SELECT 
-    'Payments visible to client_mary_smith' as description,
-    COUNT(*) as count
-FROM public.payment p;
-*/
-
--- ============================================================================
--- TEST 3: Comprehensive query with rental and film details
--- ============================================================================
-
-/*
--- Run this as client_mary_smith
-SELECT 
-    r.rental_id,
-    r.rental_date,
-    r.return_date,
-    c.first_name || ' ' || c.last_name as customer_name,
-    c.email,
-    f.title as film_title,
-    f.description as film_description,
-    f.rating,
-    f.rental_rate,
-    f.length as film_length_minutes,
-    cat.name as film_category,
-    s.first_name || ' ' || s.last_name as staff_name,
-    st.store_id
-FROM public.rental r
-INNER JOIN public.customer c ON r.customer_id = c.customer_id
-INNER JOIN public.inventory i ON r.inventory_id = i.inventory_id
-INNER JOIN public.film f ON i.film_id = f.film_id
-LEFT JOIN public.film_category fc ON f.film_id = fc.film_id
-LEFT JOIN public.category cat ON fc.category_id = cat.category_id
-INNER JOIN public.staff s ON r.staff_id = s.staff_id
-INNER JOIN public.store st ON i.store_id = st.store_id
-ORDER BY r.rental_date DESC
-LIMIT 20;
-*/
-
--- ============================================================================
--- TEST 4: Payment history with rental and film details
--- ============================================================================
-
-/*
--- Run this as client_mary_smith
-SELECT 
-    p.payment_id,
-    p.amount,
-    p.payment_date,
-    c.first_name || ' ' || c.last_name as customer_name,
-    c.email,
-    r.rental_date,
-    r.return_date,
-    f.title as film_title,
-    f.rental_rate,
-    s.first_name || ' ' || s.last_name as staff_name
-FROM public.payment p
-INNER JOIN public.customer c ON p.customer_id = c.customer_id
-INNER JOIN public.rental r ON p.rental_id = r.rental_id
-INNER JOIN public.inventory i ON r.inventory_id = i.inventory_id
-INNER JOIN public.film f ON i.film_id = f.film_id
-INNER JOIN public.staff s ON p.staff_id = s.staff_id
-ORDER BY p.payment_date DESC
-LIMIT 20;
-*/
-
--- ============================================================================
--- TEST 5: Try to access another customer's data (should return 0 rows)
--- ============================================================================
-
-/*
--- Run this as client_mary_smith
--- Even though we explicitly query customer_id = 2, RLS will return 0 rows
-SELECT 
-    r.rental_id,
-    r.rental_date,
-    r.customer_id,
-    c.first_name,
-    c.last_name
-FROM public.rental r
-INNER JOIN public.customer c ON r.customer_id = c.customer_id
-WHERE r.customer_id = 2;  -- Different customer - should return 0 rows
-
--- This should also return 0 rows
-SELECT 
-    p.payment_id,
-    p.amount,
-    p.customer_id
-FROM public.payment p
-WHERE p.customer_id = 2;  -- Different customer - should return 0 rows
-
--- Query without WHERE clause - still only sees Mary Smith's data
-SELECT COUNT(*) as visible_rentals
-FROM public.rental r;
-
-SELECT COUNT(*) as visible_payments  
-FROM public.payment p;
-*/
-
--- ============================================================================
--- TEST 6: Summary statistics for client_mary_smith
--- ============================================================================
-
-/*
--- Run this as client_mary_smith
--- Rental statistics
-SELECT 
-    COUNT(DISTINCT r.rental_id) as total_rentals,
-    COUNT(DISTINCT f.film_id) as unique_films_rented,
-    MIN(r.rental_date) as first_rental_date,
-    MAX(r.rental_date) as last_rental_date,
-    COUNT(CASE WHEN r.return_date IS NULL THEN 1 END) as currently_rented
-FROM public.rental r
-INNER JOIN public.inventory i ON r.inventory_id = i.inventory_id
-INNER JOIN public.film f ON i.film_id = f.film_id;
-
--- Payment statistics
-SELECT 
-    COUNT(p.payment_id) as total_payments,
-    SUM(p.amount) as total_amount_paid,
-    AVG(p.amount) as average_payment,
-    MIN(p.payment_date) as first_payment_date,
-    MAX(p.payment_date) as last_payment_date
-FROM public.payment p;
-
--- Favorite film categories
-SELECT 
-    cat.name as category,
-    COUNT(DISTINCT r.rental_id) as times_rented
-FROM public.rental r
-INNER JOIN public.inventory i ON r.inventory_id = i.inventory_id
-INNER JOIN public.film f ON i.film_id = f.film_id
-INNER JOIN public.film_category fc ON f.film_id = fc.film_id
-INNER JOIN public.category cat ON fc.category_id = cat.category_id
-GROUP BY cat.name
-ORDER BY times_rented DESC
-LIMIT 5;
-*/
-
--- ============================================================================
--- RESET TO SUPERUSER
--- ============================================================================
-
--- Switch back to superuser
--- RESET ROLE;
-
--- ============================================================================
--- TASK 3.8: Create enhanced views with RLS protection
--- ============================================================================
-
--- Create a comprehensive rental history view
-CREATE OR REPLACE VIEW public.my_rental_history AS
-SELECT 
-    r.rental_id,
-    r.rental_date,
-    r.return_date,
-    f.title as film_title,
-    f.description as film_description,
-    f.rating,
-    f.rental_rate,
-    f.length as film_length_minutes,
-    f.release_year,
-    cat.name as category,
-    l.name as language,
-    s.first_name || ' ' || s.last_name as staff_name,
-    st.store_id,
-    a.address as store_address,
-    ci.city as store_city
-FROM public.rental r
-INNER JOIN public.inventory i ON r.inventory_id = i.inventory_id
-INNER JOIN public.film f ON i.film_id = f.film_id
-LEFT JOIN public.film_category fc ON f.film_id = fc.film_id
-LEFT JOIN public.category cat ON fc.category_id = cat.category_id
-LEFT JOIN public.language l ON f.language_id = l.language_id
-INNER JOIN public.staff s ON r.staff_id = s.staff_id
-INNER JOIN public.store st ON i.store_id = st.store_id
-INNER JOIN public.address a ON st.address_id = a.address_id
-INNER JOIN public.city ci ON a.city_id = ci.city_id;
-
--- Grant access to the view
-GRANT SELECT ON public.my_rental_history TO client_mary_smith;
-GRANT SELECT ON TABLE public.language TO client_mary_smith;
-
--- Create a comprehensive payment history view
-CREATE OR REPLACE VIEW public.my_payment_history AS
-SELECT 
-    p.payment_id,
-    p.amount,
-    p.payment_date,
-    r.rental_date,
-    r.return_date,
-    f.title as film_title,
-    f.rental_rate,
-    f.rating,
-    cat.name as category,
-    s.first_name || ' ' || s.last_name as staff_name,
-    st.store_id
-FROM public.payment p
-INNER JOIN public.rental r ON p.rental_id = r.rental_id
-INNER JOIN public.inventory i ON r.inventory_id = i.inventory_id
-INNER JOIN public.film f ON i.film_id = f.film_id
-LEFT JOIN public.film_category fc ON f.film_id = fc.film_id
-LEFT JOIN public.category cat ON fc.category_id = cat.category_id
-INNER JOIN public.staff s ON p.staff_id = s.staff_id
-INNER JOIN public.store st ON s.store_id = st.store_id;
-
--- Grant access to the payment view
-GRANT SELECT ON public.my_payment_history TO client_mary_smith;
 
