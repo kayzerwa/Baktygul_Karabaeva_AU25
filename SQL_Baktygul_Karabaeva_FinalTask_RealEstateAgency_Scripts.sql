@@ -38,10 +38,7 @@ CREATE TABLE IF NOT EXISTS realty.agents (
     commission_rate DECIMAL(5,2) DEFAULT 0.05, -- 5% default commission
     is_active BOOLEAN DEFAULT TRUE,
     specialization VARCHAR(50),
-    created_at TIMESTAMP DEFAULT NOW(),
-    -- Constraints
-    -- CHECK: Commission rates must be between 0% and 100% (0.00 to 1.00)
-    CONSTRAINT chk_commission_rate_valid CHECK (commission_rate >= 0 AND commission_rate <= 1.00)
+    created_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Add comment explaining commission_rate data type choice
@@ -58,10 +55,7 @@ CREATE TABLE IF NOT EXISTS realty.clients (
     registration_date DATE NOT NULL DEFAULT CURRENT_DATE,
     preferred_contact VARCHAR(20),
     notes TEXT,
-    created_at TIMESTAMP DEFAULT NOW(),
-    -- Constraints
-    -- CHECK: Client type must be one of the four valid business categories
-    CONSTRAINT chk_client_type_valid CHECK (UPPER(client_type) IN ('BUYER', 'SELLER', 'LANDLORD', 'TENANT'))
+    created_at TIMESTAMP DEFAULT NOW()
 );
 
 -- TABLE 3: PROPERTIES
@@ -81,14 +75,7 @@ CREATE TABLE IF NOT EXISTS realty.properties (
     square_feet INT,
     status VARCHAR(20) DEFAULT 'AVAILABLE', -- AVAILABLE, PENDING, SOLD, RENTED
     created_at TIMESTAMP DEFAULT NOW(),
-    
-    -- Constraints
-    -- CHECK: Property prices must be positive values
-    CONSTRAINT chk_listing_price_positive CHECK (listing_price > 0),
-    -- CHECK: Property status must be one of the valid statuses
-    CONSTRAINT chk_property_status_valid CHECK (UPPER(status) IN ('AVAILABLE', 'PENDING', 'SOLD', 'RENTED')),
-    -- CHECK: Square footage must be positive, if specified
-    CONSTRAINT chk_square_feet_positive CHECK (square_feet IS NULL OR square_feet > 0),
+  
     -- Foreign keys
     CONSTRAINT fk_properties_owner FOREIGN KEY (owner_client_id) REFERENCES realty.clients(client_id) ON DELETE CASCADE,
     CONSTRAINT fk_properties_listing_agent FOREIGN KEY (listing_agent_id) REFERENCES realty.agents(agent_id) ON DELETE CASCADE
@@ -126,11 +113,6 @@ CREATE TABLE IF NOT EXISTS realty.transactions (
     closing_date DATE,
     created_at TIMESTAMP DEFAULT NOW(),
 
-	-- Constraints
-    -- CHECK: Transaction date begins from 2024-01-01, requirement #3.1
-    CONSTRAINT chk_transaction_date_valid CHECK (transaction_date >= '2024-01-01'),
-    -- CHECK: Transaction type must be either SALE or RENTAL
-    CONSTRAINT chk_transaction_type_valid CHECK (UPPER(transaction_type) IN ('SALE', 'RENTAL')),
     -- Foreign keys
 	CONSTRAINT fk_transactions_property FOREIGN KEY (property_id) REFERENCES realty.properties(property_id) ON DELETE CASCADE,
     CONSTRAINT fk_transactions_buyer FOREIGN KEY (buyer_client_id) REFERENCES realty.clients(client_id) ON DELETE CASCADE,
@@ -150,10 +132,7 @@ CREATE TABLE IF NOT EXISTS  realty.financial_records (
     payment_method VARCHAR(50),
     description TEXT,
     created_at TIMESTAMP DEFAULT NOW(),
-    
-    -- Constraints
-    -- CHECK: Amount cannot be negative
-	CONSTRAINT chk_amount_non_negative CHECK (amount >= 0),
+  
 	-- Foreign keys
 	CONSTRAINT fk_financial_transaction FOREIGN KEY (transaction_id) REFERENCES realty.transactions(transaction_id) ON DELETE CASCADE,
     CONSTRAINT fk_financial_agent FOREIGN KEY (agent_id) REFERENCES realty.agents(agent_id) ON DELETE CASCADE
@@ -167,7 +146,6 @@ CREATE TABLE IF NOT EXISTS realty.property_agents (
     role VARCHAR(20) NOT NULL, -- LISTING_AGENT, SHOWING_AGENT, CO_AGENT
     assigned_date DATE NOT NULL DEFAULT CURRENT_DATE,
     
-    -- Constraints
     -- Composite unique constraint: same agent can't have same role twice on same property
     CONSTRAINT unique_property_agent_role UNIQUE(property_id, agent_id, role),
 	-- Foreign keys 
@@ -175,10 +153,97 @@ CREATE TABLE IF NOT EXISTS realty.property_agents (
     CONSTRAINT fk_property_agents_agent FOREIGN KEY (agent_id) REFERENCES realty.agents(agent_id) ON DELETE CASCADE
 );
 
+-- TASK 3.1: ADD CHECK CONSTRAINTS USING ALTER TABLE
+-- =====================================================================
+
+-- CHECK CONSTRAINT 1: Ensure transaction dates are after January 1, 2024
+-- Business operations started on Jan 1, 2024; all transactions must be after this date
+ALTER TABLE realty.transactions
+    ADD CONSTRAINT chk_transaction_date_valid
+    CHECK (transaction_date >= '2024-01-01');
+
+COMMENT ON CONSTRAINT chk_transaction_date_valid ON realty.transactions IS
+'Ensures all transactions are recorded after business operations started (Jan 1, 2024)';
+
+-- CHECK CONSTRAINT 2: Ensure listing prices are positive (cannot be negative)
+-- Property prices must be positive values for valid business transactions
+ALTER TABLE realty.properties
+    ADD CONSTRAINT chk_listing_price_positive
+    CHECK (listing_price > 0);
+
+COMMENT ON CONSTRAINT chk_listing_price_positive ON realty.properties IS
+'Property prices must be positive values';
+
+-- CHECK CONSTRAINT 3: Ensure commission rates are within valid range (0-100%)
+-- Commission rates must be realistic percentages between 0% and 100%
+ALTER TABLE realty.agents
+    ADD CONSTRAINT chk_commission_rate_valid
+    CHECK (commission_rate >= 0 AND commission_rate <= 1.00);
+
+COMMENT ON CONSTRAINT chk_commission_rate_valid ON realty.agents IS
+'Commission rates must be between 0% and 100% (0.00 to 1.00)';
+
+-- CHECK CONSTRAINT 4: Ensure property status is one of the allowed values
+-- Property status must match predefined business workflow states
+ALTER TABLE realty.properties
+    ADD CONSTRAINT chk_property_status_valid
+    CHECK (UPPER(status) IN ('AVAILABLE', 'PENDING', 'SOLD', 'RENTED'));
+
+COMMENT ON CONSTRAINT chk_property_status_valid ON realty.properties IS
+'Property status must be one of the predefined valid statuses';
+
+-- CHECK CONSTRAINT 5: Ensure client type is one of the allowed values
+-- Client type must be one of four valid business categories
+ALTER TABLE realty.clients
+    ADD CONSTRAINT chk_client_type_valid
+    CHECK (UPPER(client_type) IN ('BUYER', 'SELLER', 'LANDLORD', 'TENANT'));
+
+COMMENT ON CONSTRAINT chk_client_type_valid ON realty.clients IS
+'Client type must be one of the four valid business categories';
+
+-- CHECK CONSTRAINT 6: Ensure transaction type matches allowed values
+-- Transactions must be either SALE or RENTAL for proper business categorization
+ALTER TABLE realty.transactions
+    ADD CONSTRAINT chk_transaction_type_valid
+    CHECK (UPPER(transaction_type) IN ('SALE', 'RENTAL'));
+
+COMMENT ON CONSTRAINT chk_transaction_type_valid ON realty.transactions IS
+'Transaction type must be either SALE or RENTAL';
+
+-- CHECK CONSTRAINT 7: Ensure financial amounts are non-negative
+-- Financial records cannot have negative amounts in business accounting
+ALTER TABLE realty.financial_records
+    ADD CONSTRAINT chk_amount_non_negative
+    CHECK (amount >= 0);
+
+COMMENT ON CONSTRAINT chk_amount_non_negative ON realty.financial_records IS
+'Financial amounts cannot be negative';
+
+-- CHECK CONSTRAINT 8: Ensure square footage is positive when specified
+-- Square footage must be positive if provided; NULL is acceptable for land/special properties
+ALTER TABLE realty.properties
+    ADD CONSTRAINT chk_square_feet_positive
+    CHECK (square_feet IS NULL OR square_feet > 0);
+
+COMMENT ON CONSTRAINT chk_square_feet_positive ON realty.properties IS
+'Square footage must be positive if specified';
+
+
 -- =====================================================================
 -- TASK 4: POPULATE TABLES WITH SAMPLE DATA
 -- All data spans September-December 2024 (last 3 months from Dec 6, 2024)
+-- Using TRUNCATE and no ON CONFLICT to prevent duplicates
 -- =====================================================================
+
+-- Clean all tables before inserting (prevents duplicates on reruns)
+TRUNCATE TABLE realty.property_agents, 
+               realty.financial_records, 
+               realty.transactions, 
+               realty.market_data,
+               realty.properties, 
+               realty.clients, 
+               realty.agents 
+RESTART IDENTITY CASCADE;
 
 -- INSERT AGENTS 
 INSERT INTO realty.agents (first_name, last_name, email, phone, license_number, commission_rate, specialization, is_active)
@@ -190,8 +255,7 @@ VALUES
     	('Jessica', 'Williams', 'jessica.williams@realty.com', '555-0105', 'LIC-2024-005', 0.05, 'Condos', TRUE),
     	('Robert', 'Martinez', 'robert.martinez@realty.com', '555-0106', 'LIC-2024-006', 0.06, 'Investment', TRUE),
     	('Amanda', 'Taylor', 'amanda.taylor@realty.com', '555-0107', 'LIC-2024-007', 0.05, 'First-time Buyers', TRUE),
-    	('Christopher', 'Lee', 'christopher.lee@realty.com', '555-0108', 'LIC-2024-008', 0.055, 'Commercial', FALSE)
-ON CONFLICT DO NOTHING;
+    	('Christopher', 'Lee', 'christopher.lee@realty.com', '555-0108', 'LIC-2024-008', 0.055, 'Commercial', FALSE);
 
 -- INSERT CLIENTS (buyers, sellers, landlords, tenants)
 INSERT INTO realty.clients (first_name, last_name, email, phone, client_type, registration_date, preferred_contact)
@@ -205,8 +269,7 @@ VALUES
     ('Susan', 'White', 'susan.white@email.com', '555-1007', 'BUYER', '2024-11-05', 'EMAIL'),
     ('Daniel', 'Harris', 'daniel.harris@email.com', '555-1008', 'LANDLORD', '2024-11-10', 'PHONE'),
     ('Karen', 'Martin', 'karen.martin@email.com', '555-1009', 'SELLER', '2024-11-20', 'EMAIL'),
-    ('Steven', 'Clark', 'steven.clark@email.com', '555-1010', 'BUYER', '2024-12-01', 'PHONE')
-ON CONFLICT DO NOTHING;
+    ('Steven', 'Clark', 'steven.clark@email.com', '555-1010', 'BUYER', '2024-12-01', 'PHONE');
 
 -- INSERT PROPERTIES
 -- Using subqueries to get client_id and agent_id by natural keys
@@ -251,7 +314,7 @@ VALUES
         (SELECT client_id FROM realty.clients WHERE email = 'james.wilson@email.com'),
         (SELECT agent_id FROM realty.agents WHERE license_number = 'LIC-2024-004'),
         'APARTMENT', '111 Downtown Plaza', 'Austin', 'TX', '78708', 1800.00, 'RENT', 1, 1.0, 650, 'AVAILABLE'
-    )ON CONFLICT DO NOTHING;
+    );
 
 -- INSERT MARKET_DATA (last 3 months of 2024)
 INSERT INTO realty.market_data (city, state, neighborhood, property_type, average_price, median_price, price_per_sqft, days_on_market, trend)
@@ -261,8 +324,7 @@ VALUES
     ('Austin', 'TX', 'Downtown', 'CONDO', 322000.00, 305000.00, 292.00, 28, 'UP'),
     ('Austin', 'TX', 'West Lake', 'HOUSE', 618000.00, 575000.00, 290.00, 42, 'DOWN'),
     ('Austin', 'TX', 'Downtown', 'CONDO', 328000.00, 310000.00, 298.00, 25, 'UP'),
-    ('Austin', 'TX', 'East Side', 'HOUSE', 485000.00, 465000.00, 245.00, 38, 'STABLE')
-ON CONFLICT DO NOTHING;
+    ('Austin', 'TX', 'East Side', 'HOUSE', 485000.00, 465000.00, 245.00, 38, 'STABLE');
 
 -- INSERT TRANSACTIONS (last 3 months)
 INSERT INTO realty.transactions (property_id, buyer_client_id, seller_client_id, agent_id, transaction_type, transaction_date, sale_price, commission_amount, status, closing_date)
@@ -272,43 +334,43 @@ VALUES
         (SELECT client_id FROM realty.clients WHERE email = 'john.smith@email.com'),
         (SELECT client_id FROM realty.clients WHERE email = 'maria.garcia@email.com'),
         (SELECT agent_id FROM realty.agents WHERE license_number = 'LIC-2024-001'),
-        'SALE', '2024-10-15', 450000.00, 13500.00, 'COMPLETED', '2024-10-15'
+        'SALE', '2024-10-15', 450000.00, 22500.00, 'COMPLETED', '2024-10-15'
     ),
     (
         (SELECT property_id FROM realty.properties WHERE address = '789 Maple Drive'),
         (SELECT client_id FROM realty.clients WHERE email = 'richard.jackson@email.com'),
         (SELECT client_id FROM realty.clients WHERE email = 'james.wilson@email.com'),
         (SELECT agent_id FROM realty.agents WHERE license_number = 'LIC-2024-004'),
-        'RENTAL', '2024-11-01', 2500.00, 2500.00, 'COMPLETED', '2024-11-01'
+        'RENTAL', '2024-11-01', 2500.00, 112.50, 'COMPLETED', '2024-11-01'
     ),
     (
         (SELECT property_id FROM realty.properties WHERE address = '888 Lake View'),
         (SELECT client_id FROM realty.clients WHERE email = 'linda.anderson@email.com'),
         (SELECT client_id FROM realty.clients WHERE email = 'maria.garcia@email.com'),
         (SELECT agent_id FROM realty.agents WHERE license_number = 'LIC-2024-005'),
-        'SALE', '2024-11-20', 280000.00, 8400.00, 'COMPLETED', '2024-11-20'
+        'SALE', '2024-11-20', 280000.00, 14000.00, 'COMPLETED', '2024-11-20'
     ),
     (
         (SELECT property_id FROM realty.properties WHERE address = '321 Business Blvd'),
         (SELECT client_id FROM realty.clients WHERE email = 'susan.white@email.com'),
         (SELECT client_id FROM realty.clients WHERE email = 'karen.martin@email.com'),
         (SELECT agent_id FROM realty.agents WHERE license_number = 'LIC-2024-002'),
-        'SALE', '2024-12-01', 850000.00, 29750.00, 'PENDING', NULL
+        'SALE', '2024-12-01', 850000.00, 46750.00, 'PENDING', NULL
     ),
     (
         (SELECT property_id FROM realty.properties WHERE address = '456 Pine Avenue'),
         (SELECT client_id FROM realty.clients WHERE email = 'steven.clark@email.com'),
         (SELECT client_id FROM realty.clients WHERE email = 'patricia.thomas@email.com'),
         (SELECT agent_id FROM realty.agents WHERE license_number = 'LIC-2024-003'),
-        'SALE', '2024-12-03', 325000.00, 9750.00, 'PENDING', NULL
+        'SALE', '2024-12-03', 325000.00, 16250.00, 'PENDING', NULL
     ),
     (
         (SELECT property_id FROM realty.properties WHERE address = '555 Elm Street'),
         (SELECT client_id FROM realty.clients WHERE email = 'john.smith@email.com'),
         (SELECT client_id FROM realty.clients WHERE email = 'daniel.harris@email.com'),
         (SELECT agent_id FROM realty.agents WHERE license_number = 'LIC-2024-004'),
-        'RENTAL', '2024-11-15', 3200.00, 3200.00, 'PENDING', NULL
-    ) ON CONFLICT DO NOTHING;
+        'RENTAL', '2024-11-15', 3200.00, 144.00, 'PENDING', NULL
+    );
 
 -- INSERT FINANCIAL_RECORDS
 INSERT INTO realty.financial_records (transaction_id, agent_id, record_type, amount, record_date, payment_status, payment_method, description)
@@ -316,22 +378,22 @@ VALUES
     (
         (SELECT transaction_id FROM realty.transactions WHERE sale_price = 450000.00 AND transaction_type = 'SALE'),
         (SELECT agent_id FROM realty.agents WHERE license_number = 'LIC-2024-001'),
-        'COMMISSION', 13500.00, '2024-10-20', 'PAID', 'BANK_TRANSFER', 'Commission for Oak Street sale'
+        'COMMISSION', 22500.00, '2024-10-20', 'PAID', 'BANK_TRANSFER', 'Commission for Oak Street sale'
     ),
     (
         (SELECT transaction_id FROM realty.transactions WHERE sale_price = 2500.00 AND transaction_type = 'RENTAL' AND transaction_date = '2024-11-01'),
         (SELECT agent_id FROM realty.agents WHERE license_number = 'LIC-2024-004'),
-        'COMMISSION', 2500.00, '2024-11-05', 'PAID', 'CHECK', 'Commission for Maple Drive rental'
+        'COMMISSION', 112.50, '2024-11-05', 'PAID', 'CHECK', 'Commission for Maple Drive rental'
     ),
     (
         (SELECT transaction_id FROM realty.transactions WHERE sale_price = 280000.00),
         (SELECT agent_id FROM realty.agents WHERE license_number = 'LIC-2024-005'),
-        'COMMISSION', 8400.00, '2024-11-25', 'PAID', 'BANK_TRANSFER', 'Commission for Lake View condo'
+        'COMMISSION', 14000.00, '2024-11-25', 'PAID', 'BANK_TRANSFER', 'Commission for Lake View condo'
     ),
     (
         (SELECT transaction_id FROM realty.transactions WHERE sale_price = 850000.00),
         (SELECT agent_id FROM realty.agents WHERE license_number = 'LIC-2024-002'),
-        'COMMISSION', 29750.00, '2024-12-01', 'PENDING', NULL, 'Commission for Business Blvd commercial'
+        'COMMISSION', 46750.00, '2024-12-01', 'PENDING', NULL, 'Commission for Business Blvd commercial'
     ),
     (
         (SELECT transaction_id FROM realty.transactions WHERE sale_price = 450000.00 AND transaction_type = 'SALE'),
@@ -342,8 +404,7 @@ VALUES
         (SELECT transaction_id FROM realty.transactions WHERE sale_price = 325000.00),
         (SELECT agent_id FROM realty.agents WHERE license_number = 'LIC-2024-003'),
         'FEE', 350.00, '2024-12-03', 'PENDING', NULL, 'Processing fee for Pine Avenue transaction'
-    ) 
-ON CONFLICT DO NOTHING;
+    );
 
 -- INSERT PROPERTY_AGENTS (junction table entries)
 INSERT INTO realty.property_agents (property_id, agent_id, role, assigned_date)
@@ -393,8 +454,7 @@ VALUES
         (SELECT property_id FROM realty.properties WHERE address = '999 Hill Road'),
         (SELECT agent_id FROM realty.agents WHERE license_number = 'LIC-2024-001'),
         'LISTING_AGENT', '2024-11-15'
-    )
-ON CONFLICT DO NOTHING;
+    );
 
 -- =====================================================================
 -- TASK 5.1: FUNCTION TO UPDATE DATA
