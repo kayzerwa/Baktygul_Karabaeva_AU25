@@ -13,51 +13,33 @@ Please format the columns as follows:
 - Display the result for each channel in descending order of sales
 */
 
-WITH customer_channel_sales AS (
-    -- Calculate total sales per customer per channel
+WITH ranked_customers AS (
+    -- Calculate total sales per customer per channel, channel totals, and rankings in one CTE
     SELECT 
         c.cust_id,
         c.cust_first_name,
         c.cust_last_name,
         ch.channel_desc,
-        SUM(s.amount_sold) AS total_sales
+        SUM(s.amount_sold) AS total_sales,
+        SUM(SUM(s.amount_sold)) OVER (PARTITION BY ch.channel_desc) AS channel_total_sales,
+        ROW_NUMBER() OVER (PARTITION BY ch.channel_desc ORDER BY SUM(s.amount_sold) DESC) AS rank
     FROM sh.sales s
     JOIN sh.customers c ON s.cust_id = c.cust_id
     JOIN sh.channels ch ON s.channel_id = ch.channel_id
     GROUP BY c.cust_id, c.cust_first_name, c.cust_last_name, ch.channel_desc
-),
-channel_totals AS (
-    -- Calculate total sales per channel
-    SELECT 
-        channel_desc,
-        SUM(total_sales) AS channel_total_sales
-    FROM customer_channel_sales
-    GROUP BY channel_desc
-),
-ranked_customers AS (
-    -- Rank customers within each channel and calculate sales percentage
-    SELECT 
-        ccs.cust_id,
-        ccs.cust_first_name,
-        ccs.cust_last_name,
-        ccs.channel_desc,
-        TO_CHAR(ccs.total_sales, 'FM999999999990.00') AS total_sales,
-        TO_CHAR((ccs.total_sales / ct.channel_total_sales * 100), 'FM9990.0000') || '%' AS sales_percentage,
-        ROW_NUMBER() OVER (PARTITION BY ccs.channel_desc ORDER BY ccs.total_sales DESC) AS rank
-    FROM customer_channel_sales ccs
-    JOIN channel_totals ct ON ccs.channel_desc = ct.channel_desc
 )
 SELECT 
     cust_id,
     cust_first_name,
     cust_last_name,
     channel_desc,
-    total_sales,
-    sales_percentage
+    TO_CHAR(total_sales, 'FM999999999990.00') AS total_sales,
+    TO_CHAR((total_sales / channel_total_sales * 100), 'FM9990.0000') || '%' AS sales_percentage
 FROM ranked_customers
 WHERE rank <= 5
 ORDER BY channel_desc, rank;
 
+       
 -- TASK 2:
 -- ========================================================================
 /* 
@@ -152,68 +134,40 @@ ORDER BY pyt.year_sum DESC;
 - Format the column so that total sales are displayed with two decimal places
 */
 
-WITH customer_total_sales AS (
-    -- Calculate total sales per customer across 1998, 1999, and 2001
-    SELECT 
-        s.cust_id,
-        SUM(s.amount_sold) AS total_sales
-    FROM sh.sales s
-    JOIN sh.times t ON s.time_id = t.time_id
-    WHERE t.calendar_year IN (1998, 1999, 2001)
-    GROUP BY s.cust_id
-),
-top_300_customers AS (
-    -- Identify top 300 customers based on total sales
-    SELECT 
-        cust_id,
-        total_sales,
-        RANK() OVER (ORDER BY total_sales DESC) AS sales_rank
-    FROM customer_total_sales
-),
-qualified_customers AS (
-    -- Filter only customers ranked in top 300
-    SELECT cust_id
-    FROM top_300_customers
-    WHERE sales_rank <= 300
-),
-channel_sales AS (
-    -- Calculate sales per customer per channel for qualified customers
-    SELECT 
-        c.cust_id,
-        c.cust_first_name,
-        c.cust_last_name,
-        ch.channel_desc,
-        s.channel_id,
-        SUM(s.amount_sold) AS channel_total_sales
-    FROM sh.sales s
-    JOIN sh.customers c ON s.cust_id = c.cust_id
-    JOIN sh.channels ch ON s.channel_id = ch.channel_id
-    JOIN sh.times t ON s.time_id = t.time_id
-    JOIN qualified_customers qc ON c.cust_id = qc.cust_id
-    WHERE t.calendar_year IN (1998, 1999, 2001)
-    GROUP BY c.cust_id, c.cust_first_name, c.cust_last_name, ch.channel_desc, s.channel_id
-),
-channel_rankings AS (
-    -- Rank customers within each channel
-    SELECT 
-        cust_id,
-        cust_first_name,
-        cust_last_name,
-        channel_desc,
-        channel_id,
-        channel_total_sales,
-        RANK() OVER (PARTITION BY channel_id ORDER BY channel_total_sales DESC) AS channel_rank
-    FROM channel_sales
-)
-SELECT 
-    cust_id,
-    cust_first_name,
-    cust_last_name,
-    channel_desc,
-    TO_CHAR(channel_total_sales, 'FM999999990.00') AS total_sales,
-    channel_rank
-FROM channel_rankings
-ORDER BY channel_desc, channel_rank;
+WITH customer_channel_sales AS (
+	SELECT 
+		s.cust_id,
+		c.channel_id,
+		c.channel_desc,
+		t.calendar_year,
+		sum(s.amount_sold) AS total_sales
+	FROM sh.sales s
+	JOIN sh.times t ON t.time_id = s.time_id
+	JOIN sh.channels c ON c.channel_id = s.channel_id
+	WHERE t.calendar_year IN (1998, 1999, 2001)
+	GROUP BY 
+		s.cust_id, c.channel_id, c.channel_desc, t.calendar_year ),
+ranked_customers AS (
+	SELECT 
+		cust_id,
+		channel_id, 
+		channel_desc,
+		calendar_year, 
+		total_sales,
+		RANK() OVER (PARTITION BY calendar_year, channel_id ORDER BY total_sales DESC )AS sales_rank
+	FROM customer_channel_sales)
+SELECT
+	rc.calendar_year,
+	rc.channel_desc AS sales_channel,
+	cu.cust_id,
+	cu.cust_first_name,
+	cu.cust_last_name,
+	TO_CHAR(rc.total_sales, 'FM9999999990.00') AS total_sales
+FROM ranked_customers rc
+JOIN customers cu ON cu.cust_id = rc.cust_id
+WHERE rc.sales_rank <= 300
+ORDER BY 
+	rc.calendar_year, rc.channel_desc, rc.sales_rank;
 
 -- TASK 4: 
 -- ========================================================================
