@@ -62,58 +62,55 @@ ORDER BY country_region, calendar_year, channel_desc;
 -- For Friday, calculate the average sales on Thursday, Friday, and the weekend.
 -- Ensure that your calculations are accurate for the beginning of week 49 and the end of week 51.
   
-SELECT 
+WITH daily_sales AS (
+    SELECT
+        s.time_id,
+        SUM(s.amount_sold) AS day_amount,
+        EXTRACT(WEEK FROM s.time_id) AS week_no,
+        EXTRACT(DOW  FROM s.time_id) AS dow
+    FROM sh.sales s
+    WHERE s.time_id BETWEEN DATE '1999-11-29' AND DATE '1999-12-26'
+      AND EXTRACT(WEEK FROM s.time_id) IN (49, 50, 51)
+    GROUP BY s.time_id
+)
+
+SELECT
     time_id,
-    calendar_week_number,
-    day_name,
-    day_number_in_week,
-    amount_sold,
-    -- Cumulative sum within each week, reset at each week boundary
-    SUM(amount_sold) OVER (
-        PARTITION BY calendar_week_number 
+    week_no,
+    day_amount,
+
+    /* Weekly cumulative sum */
+    SUM(day_amount) OVER (
+        PARTITION BY week_no
         ORDER BY time_id
         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-    ) AS "cum_sum",
-    -- Centered 3-day average with special handling for Monday and Friday
-    CASE 
-        -- Monday: average of Sat, Sun, Mon, Tue (2 preceding + current + 1 following)
-        WHEN day_name = 'Monday' THEN
-            ROUND(
-                AVG(amount_sold) OVER (
-                    ORDER BY time_id
-                    ROWS BETWEEN 2 PRECEDING AND 1 FOLLOWING
-                ), 2
+    ) AS cum_sum,
+
+    /* Centered moving average with special weekday rules */
+    CASE
+        /* Monday: Sat + Sun + Mon + Tue */
+        WHEN dow = 1 THEN
+            AVG(day_amount) OVER (
+                ORDER BY time_id
+                ROWS BETWEEN 2 PRECEDING AND 1 FOLLOWING
             )
-        -- Friday: average of Thu, Fri, Sat, Sun (1 preceding + current + 2 following)
-        WHEN day_name = 'Friday' THEN
-            ROUND(
-                AVG(amount_sold) OVER (
-                    ORDER BY time_id
-                    ROWS BETWEEN 1 PRECEDING AND 2 FOLLOWING
-                ), 2
+
+        /* Friday: Thu + Fri + Sat + Sun */
+        WHEN dow = 5 THEN
+            AVG(day_amount) OVER (
+                ORDER BY time_id
+                ROWS BETWEEN 1 PRECEDING AND 2 FOLLOWING
             )
-        -- Other days: standard centered 3-day average (previous, current, next)
+
+        /* Standard centered 3-day average */
         ELSE
-            ROUND(
-                AVG(amount_sold) OVER (
-                    ORDER BY time_id
-                    ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING
-                ), 2
+            AVG(day_amount) OVER (
+                ORDER BY time_id
+                ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING
             )
-    END AS "centered_3_day_avg"
-FROM (
-    SELECT 
-        t.time_id,
-        t.calendar_week_number,
-        t.day_name,
-        t.day_number_in_week,
-        SUM(s.amount_sold) AS amount_sold
-    FROM sh.sales s
-    JOIN sh.times t ON s.time_id = t.time_id
-    WHERE t.calendar_year = 1999
-        AND t.calendar_week_number IN (49, 50, 51)
-    GROUP BY t.time_id, t.calendar_week_number, t.day_name, t.day_number_in_week
-) daily_sales
+    END AS centered_3_day_avg
+
+FROM daily_sales
 ORDER BY time_id;
 
 
